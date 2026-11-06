@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-SKIP_FOLDERS = {".git", "__pycache__", "reports"}
+SKIP_FOLDERS = {".git", "__pycache__", ".venv", "venv"}
 TEXT_SUFFIXES = {".py", ".md", ".json", ".toml", ".sh", ".txt", ""}
 ALLOWED_IMPORTS = {
     "argparse", "ast", "collections", "contextlib", "copy", "csv", "dataclasses", "datetime", "hashlib", "html",
@@ -20,7 +20,9 @@ ALLOWED_IMPORTS = {
 
 def repo_files():
     for path in sorted(ROOT.rglob("*")):
-        if path.is_file() and not (set(path.relative_to(ROOT).parts) & SKIP_FOLDERS):
+        parts = path.relative_to(ROOT).parts
+        generated = parts[0] == "reports"
+        if path.is_file() and not generated and not (set(parts) & SKIP_FOLDERS):
             yield path
 
 
@@ -59,6 +61,14 @@ class Sources(unittest.TestCase):
             text = data.decode("utf-8")
             for dash in long_dashes:
                 self.assertNotIn(dash, text, str(path))
+
+    def test_gitignore_cannot_hide_source_folders(self):
+        """A bare folder pattern matches at any depth, including inside the package."""
+        lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        patterns = {line[:-1] for line in lines if line.endswith("/") and not line.startswith("/")}
+        for path in ROOT.rglob("*.py"):
+            folders = set(path.relative_to(ROOT).parts[:-1])
+            self.assertFalse(folders & patterns - SKIP_FOLDERS, path)
 
     def test_python_sources_are_plain_ascii(self):
         for path in python_files():

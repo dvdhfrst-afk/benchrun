@@ -95,10 +95,16 @@ class Instrument:
     @classmethod
     def bind_problem(cls, func: Callable, kwargs: Mapping[str, Any]) -> Optional[str]:
         """Explain why ``kwargs`` do not fit ``func``, or return None."""
+        signature = inspect.signature(func)
         try:
-            inspect.signature(func).bind(None, **kwargs)
+            signature.bind(None, **kwargs)
         except TypeError as exc:
             return str(exc)
+        for name, value in kwargs.items():
+            wants_number = any(word in str(signature.parameters[name].annotation) for word in ("float", "int"))
+            is_expression = isinstance(value, str) and value.startswith("=")
+            if wants_number and not is_expression and (isinstance(value, bool) or not isinstance(value, (int, float))):
+                return f"argument {name!r} must be a number or an expression, got {value!r}"
         return None
 
     @classmethod

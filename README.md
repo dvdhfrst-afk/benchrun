@@ -242,10 +242,11 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-4001 --stat
 python -m benchrun run examples/regulator_quick.json --serial SN-4002 --address supply=192.0.2.11:5025 --address dmm=192.0.2.13:5025
 ```
 
-A station file maps each instrument name in the plan to `host:port`; see
-[examples/station_example.json](examples/station_example.json). If the port is left out, 5025 is
-used. Run `probe` first: it connects to each instrument, shows its `*IDN?` response and changes no
-settings.
+A station file maps instrument names to `host:port`; see
+[examples/station_example.json](examples/station_example.json). A key can also be a driver name,
+which covers every instrument using that driver. It can describe more than a plan uses, and any
+name that matches nothing is pointed out when you run. If the port is left out, 5025 is used. Run
+`probe` first: it connects to each instrument, shows its `*IDN?` response and changes no settings.
 
 **This path has not been exercised on physical hardware.** The simulators implement the commands
 the drivers send, and those are widely used SCPI forms, but instruments differ. Expect to check:
@@ -294,7 +295,8 @@ it off.
 | `--fault` | `instrument:kind[:after]`; instruments `dmm`, `psu`, `eload`, `scope`, `siggen`; kinds `drop`, `hang`, `error`, `garbage`, `overload` |
 
 Use `--base-port` if ports 5025 to 5029 are taken. `--base-port 0` takes any free ports, and
-`--write-addresses FILE` records them. [docs/simulators.md](docs/simulators.md) has the equations.
+`--write-addresses FILE` records them in a file you can pass to `--station`.
+[docs/simulators.md](docs/simulators.md) has the equations.
 
 ## Layout
 

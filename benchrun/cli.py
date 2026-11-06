@@ -16,7 +16,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from benchrun import __version__
 from benchrun.drivers import DRIVERS
 from benchrun.errors import BenchrunError, InstrumentFault, PlanError
-from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan
+from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station
 from benchrun.reports import FORMATS, write_reports
 from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_transport
 from benchrun.sim.bench import DEFAULT_BASE_PORT, PORT_ORDER, SimBench, parse_fault
@@ -33,7 +33,11 @@ _EXIT_BY_STATUS = {RUN_PASS: EXIT_PASS, RUN_FAIL: EXIT_FAIL, RUN_ABORTED: EXIT_A
 
 
 def _say(text: str = "") -> None:
-    print(text, flush=True)
+    try:
+        print(text, flush=True)
+    except UnicodeEncodeError:
+        # An instrument's response must not be able to stop a run at the console.
+        print(text.encode("ascii", "backslashreplace").decode("ascii"), flush=True)
 
 
 def _parse_pairs(items: Optional[Iterable[str]], flag: str) -> Dict[str, str]:
@@ -116,17 +120,15 @@ def cmd_sim(args: argparse.Namespace) -> int:
         bench.stop()
 
 
-def _addresses_from_args(args: argparse.Namespace) -> Dict[str, str]:
-    addresses: Dict[str, str] = {}
-    if args.station:
-        addresses.update(load_addresses(args.station))
-    addresses.update(_parse_pairs(args.address, "--address"))
-    return addresses
-
-
 def _load_for_bench(args: argparse.Namespace, variables: Optional[Dict[str, float]] = None) -> Plan:
     plan = load_plan(args.plan, variables)
-    apply_addresses(plan, _addresses_from_args(args))
+    addresses: Dict[str, str] = {}
+    if args.station:
+        addresses, unused = match_station(plan, load_addresses(args.station))
+        if unused:
+            _say(f"Note: station entries not used by this plan: {', '.join(sorted(unused))}")
+    addresses.update(_parse_pairs(args.address, "--address"))
+    apply_addresses(plan, addresses)
     return plan
 
 
@@ -140,7 +142,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             faults.update(parse_fault(text))
         plan = load_plan(args.plan, variables)
         bench = SimBench(dut=args.dut, seed=args.seed, noise=args.noise, faults=faults).start()
-        apply_addresses(plan, bench.addresses_for((s.name, s.driver) for s in plan.instruments.values()))
+        try:
+            apply_addresses(plan, bench.addresses_for((s.name, s.driver) for s in plan.instruments.values()))
+        except PlanError:
+            bench.stop()
+            raise
     else:
         if args.fault or args.dut != "good":
             raise PlanError(["--dut and --fault only apply with --sim; otherwise set them on the sim command"])
@@ -349,13 +355,13 @@ def cmd_drivers(args: argparse.Namespace) -> int:
 
 
 def _add_address_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--station", help='JSON file like {"addresses": {"dmm": "192.0.2.10:5025"}}')
+    parser.add_argument("--station", help='JSON file like {"addresses": {"dmm": "192.0.2.10:5025"}}; keys are instrument or driver names')
     parser.add_argument(
         "--address", action="append", metavar="NAME=HOST:PORT", help="set one instrument's address (repeatable)"
     )
 
 
-def _add_sim_args(parser: argparse.ArgumentParser, default_base: Optional[int] = None) -> None:
+def _add_sim_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dut", default="good", choices=sorted(DUT_VARIANTS), help="simulated unit (default: good)")
     parser.add_argument("--seed", type=int, default=1, help="noise seed (default: 1)")
     parser.add_argument("--noise", type=float, default=1.0, help="noise scale, 0 for none (default: 1)")

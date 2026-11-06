@@ -13,7 +13,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 from benchrun.drivers import DRIVERS
 from benchrun.errors import ExpressionError, PlanError
@@ -582,6 +582,27 @@ def load_addresses(path: Union[str, Path]) -> Dict[str, str]:
     if not isinstance(addresses, dict):
         raise PlanError([f'station file {path} needs an object like {{"addresses": {{"dmm": "host:5025"}}}}'])
     return {str(k): str(v) for k, v in addresses.items()}
+
+
+def match_station(plan: Plan, station: Mapping[str, str]) -> Tuple[Dict[str, str], List[str]]:
+    """Pick out what a plan needs from a station file.
+
+    A key may name an instrument in the plan, or a driver, which then covers
+    every instrument using that driver that has no entry of its own. A station
+    describes a whole bench and a plan may use part of it, so other entries are
+    not errors; they are returned so that a mistyped name can be pointed out.
+    """
+    addresses: Dict[str, str] = {}
+    unused: List[str] = []
+    for key, address in station.items():
+        if key in plan.instruments:
+            addresses[key] = address
+        elif key not in DRIVERS:
+            unused.append(key)
+    for spec in plan.instruments.values():
+        if spec.name not in station and spec.driver in station:
+            addresses[spec.name] = station[spec.driver]
+    return addresses, unused
 
 
 def apply_addresses(plan: Plan, addresses: Mapping[str, str]) -> None:

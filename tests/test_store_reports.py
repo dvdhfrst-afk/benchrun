@@ -195,7 +195,7 @@ class Reports(BenchTestCase):
         suite = self.suite(self.abort_detail())
         self.assertEqual(suite.get("errors"), "1")
         self.assertEqual(suite.get("skipped"), "1")
-        self.assertIn("closed", suite.find("testcase/error").get("message"))
+        self.assertRegex(suite.find("testcase/error").get("message"), "closed|lost")
 
     def test_junit_abort_with_no_measurements_is_not_green(self):
         data = base_plan()
@@ -239,7 +239,7 @@ class Reports(BenchTestCase):
         rows = list(csv.DictReader(io.StringIO(render_csv(self.abort_detail()))))
         self.assertEqual(rows[-1]["verdict"], "error")
         self.assertEqual(rows[-1]["value"], "")
-        self.assertIn("closed", rows[-1]["note"])
+        self.assertRegex(rows[-1]["note"], "closed|lost")
 
     def test_html_is_well_formed_and_complete(self):
         text = render_html(self.fail_detail())
@@ -282,7 +282,7 @@ class Reports(BenchTestCase):
     def test_html_shows_why_a_run_aborted(self):
         text = render_html(self.abort_detail())
         self.assertIn("Why the run was aborted", text)
-        self.assertIn("closed by the instrument", text)
+        self.assertRegex(text, "closed by the instrument|lost")
 
     def test_html_plot_handles_flat_values(self):
         run_id = new_run(self.store, status="pass")

@@ -13,7 +13,7 @@ import time
 import unittest
 from pathlib import Path
 
-from benchrun.cli import EXIT_ABORTED, EXIT_FAIL, EXIT_PASS, EXIT_USAGE, main
+from benchrun.cli import EXIT_ABORTED, EXIT_FAIL, EXIT_PASS, EXIT_USAGE, _say, main
 
 ROOT = Path(__file__).parent.parent
 PLAN = str(ROOT / "examples" / "regulator_line_load.json")
@@ -129,6 +129,16 @@ class RunCommand(CliCase):
     def test_unknown_subcommand_is_a_usage_error(self):
         code, _, _ = call("explode")
         self.assertEqual(code, 2)
+
+
+class Console(unittest.TestCase):
+    def test_unencodable_text_cannot_stop_a_run(self):
+        raw = io.BytesIO()
+        narrow = io.TextIOWrapper(raw, encoding="ascii", errors="strict")
+        with contextlib.redirect_stdout(narrow):
+            _say("idn \ufffd end")
+        narrow.flush()
+        self.assertIn(b"idn \\ufffd end", raw.getvalue())
 
 
 class OtherCommands(CliCase):
@@ -262,29 +272,8 @@ class TwoProcessFlow(CliCase):
             timeout=120,
         )
 
-    def station_for_plan(self, station):
-        """The sim file is keyed by driver; a plan's station file is keyed by instrument."""
-        by_driver = json.loads(station.read_text(encoding="utf-8"))["addresses"]
-        mapped = self.folder / "station.json"
-        mapped.write_text(
-            json.dumps(
-                {
-                    "addresses": {
-                        "supply": by_driver["psu"],
-                        "load": by_driver["eload"],
-                        "dmm": by_driver["dmm"],
-                        "scope": by_driver["scope"],
-                        "gen": by_driver["siggen"],
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        return mapped
-
     def test_full_flow_with_separate_simulator_process(self):
-        station, _ = self.start_sim()
-        mapped = self.station_for_plan(station)
+        mapped, _ = self.start_sim()
 
         probe = self.cli("probe", PLAN, "--station", mapped)
         self.assertEqual(probe.returncode, EXIT_PASS, probe.stdout)
@@ -317,16 +306,23 @@ class TwoProcessFlow(CliCase):
         self.assertEqual(result.returncode, EXIT_ABORTED)
         self.assertIn("cannot connect", result.stdout)
 
+    def test_station_note_for_a_mistyped_name(self):
+        mapped, _ = self.start_sim()
+        data = json.loads(mapped.read_text(encoding="utf-8"))
+        data["addresses"]["dmn"] = "127.0.0.1:1"
+        mapped.write_text(json.dumps(data), encoding="utf-8")
+        result = self.cli("probe", QUICK, "--station", mapped)
+        self.assertEqual(result.returncode, EXIT_PASS, result.stdout)
+        self.assertIn("not used by this plan: dmn", result.stdout)
+
     def test_probe_reports_a_dead_instrument(self):
-        station, _ = self.start_sim()
-        mapped = self.station_for_plan(station)
+        mapped, _ = self.start_sim()
         result = self.cli("probe", PLAN, "--station", mapped, "--address", "dmm=127.0.0.1:1")
         self.assertEqual(result.returncode, EXIT_ABORTED)
         self.assertIn("cannot connect", result.stdout)
 
     def test_sim_faults_and_units_from_the_command_line(self):
-        station, _ = self.start_sim("--dut", "poor-load", "--seed", "4")
-        mapped = self.station_for_plan(station)
+        mapped, _ = self.start_sim("--dut", "poor-load", "--seed", "4")
         result = self.cli("run", PLAN, "--serial", "SN", "--station", mapped, "--db", self.db)
         self.assertEqual(result.returncode, EXIT_FAIL, result.stdout)
         self.assertIn("load_reg", result.stdout)

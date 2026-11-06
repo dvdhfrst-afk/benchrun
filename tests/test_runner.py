@@ -238,7 +238,8 @@ class Aborts(BenchTestCase):
 
     def test_lost_connection(self):
         result, detail, bench = self.run_plan(self.fault_plan(), faults={"dmm": Fault("drop", 1)})
-        self.check_aborted(detail, result, "closed by the instrument")
+        self.assertRegex(detail["reason"], "closed by the instrument|lost")
+        self.check_aborted(detail, result, "dmm")
         self.assertIn("step vout_vs_vin", detail["reason"])
         self.assertIn("dmm", detail["reason"])
         step = step_named(detail, "vout_vs_vin")

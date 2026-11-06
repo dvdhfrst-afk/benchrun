@@ -17,6 +17,6 @@ node_modules/
 benchrun.sqlite
 *.sqlite
 *.sqlite-journal
-reports/
+/reports/
 *.scpi.log
 addresses.json

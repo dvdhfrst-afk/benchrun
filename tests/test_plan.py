@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from benchrun.errors import PlanError
-from benchrun.plan import apply_addresses, load_addresses, load_plan, parse_plan
+from benchrun.plan import apply_addresses, load_addresses, load_plan, match_station, parse_plan
 from tests.support import base_plan, clone
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
@@ -80,6 +80,26 @@ class Problems(unittest.TestCase):
             d["setup"][0] = {"do": "supply.set_current_limit", "volts": 1}
 
         self.assertProblem(self.change(spoil), "supply.set_current_limit")
+
+    def test_literal_of_the_wrong_type_is_caught_before_any_run(self):
+        for bad in ("twelve", True, None, [1]):
+
+            def spoil(d, bad=bad):
+                d["setup"][0] = {"do": "supply.set_current_limit", "amps": bad}
+
+            self.assertProblem(self.change(spoil), "must be a number")
+
+    def test_reading_argument_of_the_wrong_type(self):
+        def spoil(d):
+            d["steps"][1]["measure"][0]["args"] = {"range_v": "ten"}
+
+        self.assertProblem(self.change(spoil), "must be a number")
+
+    def test_text_arguments_stay_text(self):
+        def good(d):
+            d["setup"][0] = {"do": "dmm.write", "command": "VOLT:DC:NPLC 1"}
+
+        parse_plan(self.change(good))
 
     def test_call_needs_do_or_wait(self):
         def spoil(d):
@@ -426,6 +446,23 @@ class Addresses(unittest.TestCase):
         apply_addresses(plan, {"supply": "192.0.2.1:5025", "dmm": "192.0.2.2"})
         self.assertEqual(plan.instruments["supply"].address, "192.0.2.1:5025")
         self.assertEqual(plan.instruments["dmm"].driver, "dmm")
+
+    def test_station_may_describe_more_than_the_plan_uses(self):
+        plan = parse_plan(base_plan())
+        addresses, unused = match_station(plan, {"supply": "a", "dmm": "b", "load": "c", "scope": "d"})
+        self.assertEqual(addresses, {"supply": "a", "dmm": "b"})
+        self.assertEqual(sorted(unused), ["load"])
+
+    def test_station_keys_may_be_driver_names(self):
+        plan = parse_plan(base_plan())
+        addresses, unused = match_station(plan, {"psu": "a", "dmm": "b", "scope": "c"})
+        self.assertEqual(addresses, {"supply": "a", "dmm": "b"})
+        self.assertEqual(unused, [])
+
+    def test_instrument_name_beats_driver_name(self):
+        plan = parse_plan(base_plan())
+        addresses, _ = match_station(plan, {"psu": "a", "supply": "z", "dmm": "b"})
+        self.assertEqual(addresses["supply"], "z")
 
     def test_unknown_instrument(self):
         plan = parse_plan(base_plan())
