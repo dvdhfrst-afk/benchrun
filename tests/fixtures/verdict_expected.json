@@ -1,0 +1,2317 @@
+{
+ "about": "Expected results worked out from the equations in docs/simulators.md, separately from the runner and simulator code. Each 'worked' field shows the arithmetic.",
+ "cases": [
+  {
+   "label": "good unit passes",
+   "dut": "good",
+   "faults": [],
+   "status": "pass",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 4.9864999999999995,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(6.0-12) - 0.015*0.5, 6.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(12.0-12) - 0.015*0.5, 12.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 4.9985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(18.0-12) - 0.015*0.5, 18.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 12.000000000000455,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 5.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 3.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.036,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.5"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 503.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.5 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.5,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 3.5397499999999997,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 4.985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*1.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1002.9999999999999,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(1.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 7.0509999999999975,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "load_reg",
+     "point": {},
+     "value": 14.99999999999968,
+     "low": null,
+     "high": 20.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(first(vout)-last(vout))*1000"
+    },
+    {
+     "step": "exact_limit",
+     "name": "vout",
+     "point": {},
+     "value": 5.0,
+     "low": null,
+     "high": 5.0,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "exactly 5 V on an inclusive high limit"
+    },
+    {
+     "step": "headroom",
+     "name": "vout",
+     "point": {},
+     "value": 4.9786,
+     "low": 4.9,
+     "high": null,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(5.6-12) - 0.015, 5.6 - 0.35 - 0.25)"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 0.11236102527122109,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 69.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 69.95678626217358,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(100.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 0.15811388300841897,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 66.99 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 66.98970004336019,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(1000.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 1.1236102527122123,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 49.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 49.95678626217357,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(10000.0/1000)^2), within quantization"
+    }
+   ]
+  },
+  {
+   "label": "poor line regulation fails only the span",
+   "dut": "poor-line",
+   "faults": [],
+   "status": "fail",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 4.9624999999999995,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.005*(6.0-12) - 0.015*0.5, 6.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.005*(12.0-12) - 0.015*0.5, 12.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 5.0225,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.005*(18.0-12) - 0.015*0.5, 18.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 60.0000000000005,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 5.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 3.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.036,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.5"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 503.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.5 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.5,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 3.5397499999999997,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 4.985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*1.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1002.9999999999999,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(1.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 7.0509999999999975,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "load_reg",
+     "point": {},
+     "value": 14.99999999999968,
+     "low": null,
+     "high": 20.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(first(vout)-last(vout))*1000"
+    },
+    {
+     "step": "exact_limit",
+     "name": "vout",
+     "point": {},
+     "value": 5.0,
+     "low": null,
+     "high": 5.0,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "exactly 5 V on an inclusive high limit"
+    },
+    {
+     "step": "headroom",
+     "name": "vout",
+     "point": {},
+     "value": 4.953,
+     "low": 4.9,
+     "high": null,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.005*(5.6-12) - 0.015, 5.6 - 0.35 - 0.25)"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 0.11236102527122109,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 69.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 69.95678626217358,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(100.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 0.15811388300841897,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 66.99 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 66.98970004336019,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(1000.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 1.1236102527122123,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 49.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 49.95678626217357,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(10000.0/1000)^2), within quantization"
+    }
+   ]
+  },
+  {
+   "label": "high dropout fails wherever input headroom is short",
+   "dut": "high-dropout",
+   "faults": [],
+   "status": "fail",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 4.875,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "min(5 + 0.001*(6.0-12) - 0.015*0.5, 6.0 - 1.0 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(12.0-12) - 0.015*0.5, 12.0 - 1.0 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 4.9985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(18.0-12) - 0.015*0.5, 18.0 - 1.0 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 123.49999999999994,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 5.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 3.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.036,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.5"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 503.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.5 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.5,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 3.5397499999999997,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 4.985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*1.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1002.9999999999999,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(1.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 7.0509999999999975,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "load_reg",
+     "point": {},
+     "value": 14.99999999999968,
+     "low": null,
+     "high": 20.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(first(vout)-last(vout))*1000"
+    },
+    {
+     "step": "exact_limit",
+     "name": "vout",
+     "point": {},
+     "value": 5.0,
+     "low": null,
+     "high": 5.0,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "exactly 5 V on an inclusive high limit"
+    },
+    {
+     "step": "headroom",
+     "name": "vout",
+     "point": {},
+     "value": 4.35,
+     "low": 4.9,
+     "high": null,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "min(5 + 0.001*(5.6-12) - 0.015, 5.6 - 1.0 - 0.25)"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 0.11236102527122109,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 69.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 69.95678626217358,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(100.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 0.15811388300841897,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 66.99 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 66.98970004336019,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(1000.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 1.1236102527122123,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 49.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 49.95678626217357,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "pass",
+     "worked": "70.0 - 10*log10(1+(10000.0/1000)^2), within quantization"
+    }
+   ]
+  },
+  {
+   "label": "poor ripple rejection fails, with an overload",
+   "dut": "poor-psrr",
+   "faults": [],
+   "status": "fail",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 4.9864999999999995,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(6.0-12) - 0.015*0.5, 6.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(12.0-12) - 0.015*0.5, 12.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 4.9985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(18.0-12) - 0.015*0.5, 18.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 12.000000000000455,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 5.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 3.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.036,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.5"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 503.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.5 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.5,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 3.5397499999999997,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 4.985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*1.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1002.9999999999999,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(1.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 1.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 7.0509999999999975,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "load_reg",
+     "point": {},
+     "value": 14.99999999999968,
+     "low": null,
+     "high": 20.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(first(vout)-last(vout))*1000"
+    },
+    {
+     "step": "exact_limit",
+     "name": "vout",
+     "point": {},
+     "value": 5.0,
+     "low": null,
+     "high": 5.0,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "exactly 5 V on an inclusive high limit"
+    },
+    {
+     "step": "headroom",
+     "name": "vout",
+     "point": {},
+     "value": 4.9786,
+     "low": 4.9,
+     "high": null,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(5.6-12) - 0.015, 5.6 - 0.35 - 0.25)"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 1.9980929773067575,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 44.96 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 44.95678626217357,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "fail",
+     "worked": "45.0 - 10*log10(1+(100.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 2.8117066259517456,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0.02,
+     "verdict": "info",
+     "worked": "rejection 41.99 dB, within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 41.98970004336019,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0.5,
+     "verdict": "fail",
+     "worked": "45.0 - 10*log10(1+(1000.0/1000)^2), within quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": null,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 0,
+     "verdict": "fail",
+     "worked": "56.5 mVpp exceeds the 8 mV screen: overload"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": null,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0,
+     "verdict": "fail",
+     "worked": "its input was an overload: no answer"
+    }
+   ]
+  },
+  {
+   "label": "dead unit fails",
+   "dut": "dead",
+   "faults": [],
+   "status": "fail",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 0.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "dead unit"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 0.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "dead unit"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 0.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "dead unit"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 0.0,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "5 - 0.015*0.5"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "(0.5 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.0,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 0.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "5 - 0.015*1.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 0.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "(1.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "load_reg",
+     "point": {},
+     "value": 0.0,
+     "low": null,
+     "high": 20.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(first(vout)-last(vout))*1000"
+    },
+    {
+     "step": "exact_limit",
+     "name": "vout",
+     "point": {},
+     "value": 0.0,
+     "low": null,
+     "high": 5.0,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "exactly 5 V on an inclusive high limit"
+    },
+    {
+     "step": "headroom",
+     "name": "vout",
+     "point": {},
+     "value": 0.0,
+     "low": 4.9,
+     "high": null,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "fail",
+     "worked": "min(5 + 0.001*(5.6-12) - 0.015, 5.6 - 0.35 - 0.25)"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 100.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 1e-06,
+     "verdict": "info",
+     "worked": "no output"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 100.0
+     },
+     "value": null,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0,
+     "verdict": "fail",
+     "worked": "division by zero: no answer, so the unit fails"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 1e-06,
+     "verdict": "info",
+     "worked": "no output"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 1000.0
+     },
+     "value": null,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0,
+     "verdict": "fail",
+     "worked": "division by zero: no answer, so the unit fails"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_in",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 353.5533905932737,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 5.0,
+     "verdict": "info",
+     "worked": "1 Vpp sine is 353.55 mVrms, within 8-bit quantization"
+    },
+    {
+     "step": "ripple",
+     "name": "ripple_out",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "mVrms",
+     "tolerance": 1e-06,
+     "verdict": "info",
+     "worked": "no output"
+    },
+    {
+     "step": "ripple",
+     "name": "psrr",
+     "point": {
+      "freq": 10000.0
+     },
+     "value": null,
+     "low": 45.0,
+     "high": null,
+     "units": "dB",
+     "tolerance": 0,
+     "verdict": "fail",
+     "worked": "division by zero: no answer, so the unit fails"
+    }
+   ]
+  },
+  {
+   "label": "multimeter connection lost aborts the run",
+   "dut": "good",
+   "faults": [
+    "dmm:drop:4"
+   ],
+   "status": "aborted",
+   "reason_contains": "dmm",
+   "skipped_steps": [
+    "exact_limit",
+    "headroom",
+    "ripple"
+   ],
+   "failed_step": "load",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 4.9864999999999995,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(6.0-12) - 0.015*0.5, 6.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(12.0-12) - 0.015*0.5, 12.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 4.9985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(18.0-12) - 0.015*0.5, 18.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 12.000000000000455,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 5.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 3.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.036,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": null,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 0,
+     "verdict": "error",
+     "worked": "5th multimeter reading: connection dropped"
+    }
+   ]
+  },
+  {
+   "label": "instrument error aborts the run",
+   "dut": "good",
+   "faults": [
+    "psu:error:2"
+   ],
+   "status": "aborted",
+   "reason_contains": "-300",
+   "skipped_steps": [
+    "exact_limit",
+    "headroom",
+    "ripple"
+   ],
+   "failed_step": "load",
+   "measurements": [
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 6.0
+     },
+     "value": 4.9864999999999995,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(6.0-12) - 0.015*0.5, 6.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 12.0
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(12.0-12) - 0.015*0.5, 12.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "vout",
+     "point": {
+      "vin": 18.0
+     },
+     "value": 4.9985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "min(5 + 0.001*(18.0-12) - 0.015*0.5, 18.0 - 0.35 - 0.25*0.5)"
+    },
+    {
+     "step": "line",
+     "name": "line_reg",
+     "point": {},
+     "value": 12.000000000000455,
+     "low": null,
+     "high": 25.0,
+     "units": "mV",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(max(vout)-min(vout))*1000"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 5.0,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 3.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.0 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.0,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.0
+     },
+     "value": 0.036,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 4.9925,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*0.5"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 503.0,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "(0.5 + 0.003)*1000"
+    },
+    {
+     "step": "load",
+     "name": "iout",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 0.5,
+     "low": null,
+     "high": null,
+     "units": "A",
+     "tolerance": 2e-08,
+     "verdict": "info",
+     "worked": "load setting"
+    },
+    {
+     "step": "load",
+     "name": "pdiss",
+     "point": {
+      "iload": 0.5
+     },
+     "value": 3.5397499999999997,
+     "low": null,
+     "high": 8.0,
+     "units": "W",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "12*iin/1000 - vout*iout"
+    },
+    {
+     "step": "load",
+     "name": "vout",
+     "point": {
+      "iload": 1.0
+     },
+     "value": 4.985,
+     "low": 4.95,
+     "high": 5.05,
+     "units": "V",
+     "tolerance": 2e-08,
+     "verdict": "pass",
+     "worked": "5 - 0.015*1.0"
+    },
+    {
+     "step": "load",
+     "name": "iin",
+     "point": {
+      "iload": 1.0
+     },
+     "value": null,
+     "low": 1.0,
+     "high": 1010.0,
+     "units": "mA",
+     "tolerance": 0,
+     "verdict": "error",
+     "worked": "3rd supply reading: error queue holds -300"
+    }
+   ]
+  }
+ ]
+}

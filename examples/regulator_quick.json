@@ -1,0 +1,27 @@
+{
+  "name": "regulator-quick",
+  "version": "1.0",
+  "description": "Short functional check that only needs a supply and a multimeter.",
+  "vars": { "vnom": 5.0 },
+  "instruments": {
+    "supply": { "driver": "psu", "address": "127.0.0.1:5026" },
+    "dmm": { "driver": "dmm", "address": "127.0.0.1:5025" }
+  },
+  "setup": [
+    { "do": "supply.set_current_limit", "amps": 0.5 },
+    { "do": "supply.set_voltage", "volts": 12.0 },
+    { "do": "supply.output_on" }
+  ],
+  "steps": [
+    {
+      "name": "output_voltage",
+      "sweep": { "var": "vin", "values": [8.0, 12.0, 16.0] },
+      "apply": [{ "do": "supply.set_voltage", "volts": "=vin" }],
+      "settle_s": 0.01,
+      "measure": [
+        { "name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "low": "=vnom * 0.98", "high": "=vnom * 1.02" }
+      ]
+    }
+  ],
+  "teardown": [{ "do": "supply.output_off" }]
+}

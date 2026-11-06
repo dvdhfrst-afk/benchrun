@@ -1,0 +1,147 @@
+{
+  "name": "regulator-line-load",
+  "version": "1.0",
+  "description": "5 V linear regulator: quiescent current, line regulation, load regulation, low-headroom operation and ripple rejection.",
+  "vars": {
+    "vnom": 5.0,
+    "tol_v": 0.1,
+    "vin_typ": 12.0,
+    "vin_headroom": 5.75,
+    "iload_max": 1.0,
+    "ripple_vpp": 1.0
+  },
+  "instruments": {
+    "supply": { "driver": "psu", "address": "127.0.0.1:5026" },
+    "load": { "driver": "eload", "address": "127.0.0.1:5027" },
+    "dmm": { "driver": "dmm", "address": "127.0.0.1:5025" },
+    "scope": { "driver": "scope", "address": "127.0.0.1:5028" },
+    "gen": { "driver": "siggen", "address": "127.0.0.1:5029" }
+  },
+  "setup": [
+    { "do": "supply.set_current_limit", "amps": 2.0 },
+    { "do": "supply.set_voltage", "volts": "=vin_typ" },
+    { "do": "load.set_current", "amps": 0.0 },
+    { "do": "load.input_on" },
+    { "do": "supply.output_on" },
+    { "wait_s": 0.05 }
+  ],
+  "steps": [
+    {
+      "name": "quiescent_current",
+      "description": "Input current with no load at typical input voltage.",
+      "setup": [
+        { "do": "load.set_current", "amps": 0.0 },
+        { "do": "supply.set_voltage", "volts": "=vin_typ" }
+      ],
+      "settle_s": 0.02,
+      "measure": [
+        { "name": "iq", "read": "supply.measure_current", "units": "mA", "high": 5.0, "samples": 4 }
+      ]
+    },
+    {
+      "name": "line_regulation",
+      "description": "Output voltage while the input sweeps at a light load.",
+      "setup": [{ "do": "load.set_current", "amps": 0.1 }],
+      "sweep": { "var": "vin", "start": 7.0, "stop": 20.0, "step": 1.0 },
+      "apply": [{ "do": "supply.set_voltage", "volts": "=vin" }],
+      "settle_s": 0.005,
+      "measure": [
+        {
+          "name": "vout",
+          "read": "dmm.measure_dc_voltage",
+          "args": { "range_v": 10.0, "nplc": 1.0 },
+          "units": "V",
+          "low": "=vnom - tol_v",
+          "high": "=vnom + tol_v"
+        },
+        { "name": "supply_limited", "read": "supply.current_limited", "high": 0 }
+      ],
+      "summary": [
+        { "name": "line_reg", "calc": "span(vout) * 1000", "units": "mV", "high": 30.0 },
+        { "name": "line_reg_per_volt", "calc": "span(vout) / span(vin) * 1000", "units": "mV/V" }
+      ]
+    },
+    {
+      "name": "load_regulation",
+      "description": "Output voltage while the load sweeps at typical input voltage, with efficiency at each point.",
+      "setup": [{ "do": "supply.set_voltage", "volts": "=vin_typ" }],
+      "sweep": { "var": "iload", "start": 0.0, "stop": 1.0, "step": 0.1 },
+      "apply": [{ "do": "load.set_current", "amps": "=iload" }],
+      "settle_s": 0.005,
+      "measure": [
+        {
+          "name": "vout",
+          "read": "dmm.measure_dc_voltage",
+          "args": { "range_v": 10.0, "nplc": 1.0 },
+          "units": "V",
+          "low": "=vnom - tol_v",
+          "high": "=vnom + tol_v"
+        },
+        { "name": "iin", "read": "supply.measure_current", "units": "A" },
+        { "name": "vin", "read": "supply.measure_voltage", "units": "V" },
+        { "name": "iout", "read": "load.measure_current", "units": "A" },
+        { "name": "pdiss", "calc": "vin * iin - vout * iout", "units": "W", "high": 8.0 }
+      ],
+      "summary": [
+        { "name": "load_reg", "calc": "(first(vout) - last(vout)) * 1000", "units": "mV", "high": 30.0 }
+      ],
+      "cleanup": [{ "do": "load.set_current", "amps": 0.0 }]
+    },
+    {
+      "name": "low_headroom",
+      "description": "Output stays in regulation at full load close to the dropout voltage.",
+      "setup": [
+        { "do": "load.set_current", "amps": "=iload_max" },
+        { "do": "supply.set_voltage", "volts": "=vin_headroom" }
+      ],
+      "settle_s": 0.01,
+      "measure": [
+        {
+          "name": "vout",
+          "read": "dmm.measure_dc_voltage",
+          "args": { "range_v": 10.0, "nplc": 1.0 },
+          "units": "V",
+          "low": "=vnom - tol_v",
+          "high": "=vnom + tol_v"
+        }
+      ],
+      "cleanup": [
+        { "do": "load.set_current", "amps": 0.0 },
+        { "do": "supply.set_voltage", "volts": "=vin_typ" }
+      ]
+    },
+    {
+      "name": "ripple_rejection",
+      "description": "Power supply rejection ratio: ripple injected on the input against ripple seen on the output.",
+      "setup": [
+        { "do": "load.set_current", "amps": 0.1 },
+        { "do": "scope.setup_channel", "channel": 1, "volts_per_div": 0.001, "coupling": "AC" },
+        { "do": "scope.setup_channel", "channel": 2, "volts_per_div": 0.2, "coupling": "AC" },
+        { "do": "gen.set_waveform", "shape": "SIN", "hertz": 1000.0, "vpp": "=ripple_vpp" },
+        { "do": "gen.output_on" }
+      ],
+      "sweep": { "var": "freq", "values": [100.0, 1000.0, 10000.0] },
+      "apply": [
+        { "do": "gen.set_frequency", "hertz": "=freq" },
+        { "do": "scope.set_timebase", "seconds_per_div": "=1 / freq" }
+      ],
+      "settle_s": 0.005,
+      "measure": [
+        { "name": "ripple_in", "read": "scope.measure_vrms", "args": { "channel": 2 }, "units": "mVrms" },
+        { "name": "ripple_out", "read": "scope.measure_vrms", "args": { "channel": 1 }, "units": "mVrms" },
+        { "name": "measured_freq", "read": "scope.measure_frequency", "args": { "channel": 2 }, "units": "Hz", "low": "=freq * 0.98", "high": "=freq * 1.02" },
+        { "name": "psrr", "calc": "20 * log10(ripple_in / ripple_out)", "units": "dB", "low": 40.0 }
+      ],
+      "summary": [
+        { "name": "worst_psrr", "calc": "min(psrr)", "units": "dB", "low": 40.0 }
+      ],
+      "cleanup": [{ "do": "gen.output_off" }]
+    }
+  ],
+  "teardown": [
+    { "do": "load.set_current", "amps": 0.0 },
+    { "do": "load.input_off" },
+    { "do": "gen.output_off" },
+    { "do": "supply.output_off" }
+  ]
+}

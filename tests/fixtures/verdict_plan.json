@@ -1,0 +1,92 @@
+{
+  "name": "verdict-fixture",
+  "version": "1",
+  "description": "Plan whose results are worked out by hand in verdict_expected.json.",
+  "instruments": {
+    "supply": { "driver": "psu" },
+    "load": { "driver": "eload" },
+    "dmm": { "driver": "dmm" },
+    "scope": { "driver": "scope" },
+    "gen": { "driver": "siggen" }
+  },
+  "setup": [
+    { "do": "supply.set_current_limit", "amps": 3.0 },
+    { "do": "load.input_on" },
+    { "do": "supply.output_on" }
+  ],
+  "steps": [
+    {
+      "name": "line",
+      "setup": [{ "do": "load.set_current", "amps": 0.5 }],
+      "sweep": { "var": "vin", "values": [6.0, 12.0, 18.0] },
+      "apply": [{ "do": "supply.set_voltage", "volts": "=vin" }],
+      "measure": [
+        { "name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "low": 4.95, "high": 5.05 }
+      ],
+      "summary": [
+        { "name": "line_reg", "calc": "span(vout) * 1000", "units": "mV", "high": 25.0 }
+      ]
+    },
+    {
+      "name": "load",
+      "setup": [{ "do": "supply.set_voltage", "volts": 12.0 }],
+      "sweep": { "var": "iload", "values": [0.0, 0.5, 1.0] },
+      "apply": [{ "do": "load.set_current", "amps": "=iload" }],
+      "measure": [
+        { "name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "low": 4.95, "high": 5.05 },
+        { "name": "iin", "read": "supply.measure_current", "units": "mA", "low": 1.0, "high": 1010.0 },
+        { "name": "iout", "read": "load.measure_current", "units": "A" },
+        { "name": "pdiss", "calc": "12 * iin / 1000 - vout * iout", "units": "W", "high": 8.0 }
+      ],
+      "summary": [
+        { "name": "load_reg", "calc": "(first(vout) - last(vout)) * 1000", "units": "mV", "high": 20.0 }
+      ]
+    },
+    {
+      "name": "exact_limit",
+      "setup": [
+        { "do": "load.set_current", "amps": 0.0 },
+        { "do": "supply.set_voltage", "volts": 12.0 }
+      ],
+      "measure": [
+        { "name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "high": 5.0 }
+      ]
+    },
+    {
+      "name": "headroom",
+      "setup": [
+        { "do": "load.set_current", "amps": 1.0 },
+        { "do": "supply.set_voltage", "volts": 5.6 }
+      ],
+      "measure": [
+        { "name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "low": 4.9 }
+      ]
+    },
+    {
+      "name": "ripple",
+      "setup": [
+        { "do": "load.set_current", "amps": 0.1 },
+        { "do": "supply.set_voltage", "volts": 12.0 },
+        { "do": "scope.setup_channel", "channel": 1, "volts_per_div": 0.001, "coupling": "AC" },
+        { "do": "scope.setup_channel", "channel": 2, "volts_per_div": 0.2, "coupling": "AC" },
+        { "do": "gen.set_waveform", "shape": "SIN", "hertz": 100.0, "vpp": 1.0 },
+        { "do": "gen.output_on" }
+      ],
+      "sweep": { "var": "freq", "values": [100.0, 1000.0, 10000.0] },
+      "apply": [
+        { "do": "gen.set_frequency", "hertz": "=freq" },
+        { "do": "scope.set_timebase", "seconds_per_div": "=1 / freq" }
+      ],
+      "measure": [
+        { "name": "ripple_in", "read": "scope.measure_vrms", "args": { "channel": 2 }, "units": "mVrms" },
+        { "name": "ripple_out", "read": "scope.measure_vrms", "args": { "channel": 1 }, "units": "mVrms" },
+        { "name": "psrr", "calc": "20 * log10(ripple_in / ripple_out)", "units": "dB", "low": 45.0 }
+      ],
+      "cleanup": [{ "do": "gen.output_off" }]
+    }
+  ],
+  "teardown": [
+    { "do": "load.input_off" },
+    { "do": "supply.output_off" }
+  ]
+}
