@@ -37,7 +37,7 @@ only letters, digits and underscores.
 | `address` | no | `host`, `host:port` or `[ipv6]:port`. The default port is 5025. Must be set here, or by `--station` or `--address`. |
 | `timeout_s` | no | Seconds to wait for a response. Default 5. |
 | `expect_idn` | no | Regular expression searched for in the `*IDN?` response. No match aborts the run. |
-| `commands` | no | Replacement SCPI templates, by the keys that `drivers NAME --commands` lists. |
+| `commands` | no | Replacement SCPI templates, by the keys that `drivers NAME --commands` lists. On `psu`, the key `constant_current_bit` holds a bit number, not a template. |
 
 At the start of a run each instrument is connected and identified, its response is recorded, and
 then it gets `*CLS` and `*RST`.

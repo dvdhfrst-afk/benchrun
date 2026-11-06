@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from benchrun.drivers.base import Instrument, action, reading
 
 
@@ -16,8 +18,14 @@ class PowerSupply(Instrument):
         "measure_voltage": "MEAS:VOLT?",
         "measure_current": "MEAS:CURR?",
         "operation_condition": "STAT:OPER:COND?",
+        "constant_current_bit": "10",
     }
-    CONSTANT_CURRENT_BIT = 0x400
+
+    @classmethod
+    def override_problem(cls, key: str, template: str) -> Optional[str]:
+        if key == "constant_current_bit" and not (template.isdigit() and int(template) < 32):
+            return f"constant_current_bit must be a bit number from 0 to 31, got {template!r}"
+        return super().override_problem(key, template)
 
     @action
     def set_voltage(self, volts: float) -> None:
@@ -47,7 +55,7 @@ class PowerSupply(Instrument):
     def current_limited(self) -> float:
         """1 when the supply is in constant current, else 0. Use ``"high": 0``."""
         condition = int(self.number("operation_condition"))
-        return 1.0 if condition & self.CONSTANT_CURRENT_BIT else 0.0
+        return 1.0 if condition >> int(self.commands["constant_current_bit"]) & 1 else 0.0
 
     def safe_state(self) -> None:
         self.output_off()

@@ -32,6 +32,9 @@ class Dmm(Instrument):
         super().reset()
         self._configured = None
 
+    def _forget_settings(self) -> None:
+        self._configured = None
+
     def _configure(self, function: str, range_value: Optional[float], nplc: Optional[float]) -> None:
         wanted = (function, range_value, nplc)
         if self._configured == wanted:

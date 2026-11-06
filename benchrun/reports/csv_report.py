@@ -1,4 +1,9 @@
-"""CSV report: one row per measurement, ready for a spreadsheet or a script."""
+"""CSV report: one row per measurement, ready for a spreadsheet or a script.
+
+A test step with no measurements still gets a row, as does a setup or teardown
+that went wrong and a run with no steps, so the file always shows how far the
+run got and why it stopped.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ COLUMNS = (
     "plan",
     "plan_version",
     "run_status",
+    "run_reason",
     "step",
     "step_status",
     "measurement",
@@ -38,15 +44,26 @@ def render_csv(detail: Dict[str, Any]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(COLUMNS)
+    run_cells = [
+        detail["id"],
+        detail["serial"],
+        detail["plan_name"],
+        detail["plan_version"],
+        detail["status"],
+        _cell(detail["reason"]),
+    ]
+    blank = [""] * (len(COLUMNS) - len(run_cells) - 3)
+    if not detail["steps"]:
+        writer.writerow(run_cells + ["", "", ""] + blank)
     for step in detail["steps"]:
+        if not step["measurements"] and (step["kind"] == "test" or step["status"] != "pass"):
+            row = run_cells + [step["name"], step["status"]] + blank + [""]
+            row[COLUMNS.index("note")] = _cell(step["message"])
+            writer.writerow(row)
         for m in step["measurements"]:
             writer.writerow(
-                [
-                    detail["id"],
-                    detail["serial"],
-                    detail["plan_name"],
-                    detail["plan_version"],
-                    detail["status"],
+                run_cells
+                + [
                     step["name"],
                     step["status"],
                     m["name"],

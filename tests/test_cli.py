@@ -12,6 +12,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from benchrun.cli import EXIT_ABORTED, EXIT_FAIL, EXIT_PASS, EXIT_USAGE, _say, main
 
@@ -129,6 +130,29 @@ class RunCommand(CliCase):
     def test_unknown_subcommand_is_a_usage_error(self):
         code, _, _ = call("explode")
         self.assertEqual(code, 2)
+
+
+class NeverReadsAsAFailedUnit(CliCase):
+    def test_plan_in_another_encoding(self):
+        path = self.folder / "plan.json"
+        path.write_bytes('{"name": "25 \u00b0C"}'.encode("cp1252"))
+        for command in ("validate", "probe"):
+            code, _, err = call(command, path)
+            self.assertEqual(code, EXIT_USAGE)
+            self.assertIn("not UTF-8", err)
+
+    def test_port_out_of_range(self):
+        for port in ("70000", "65535", "-1"):
+            code, _, err = call("sim", "--base-port", port)
+            self.assertEqual(code, EXIT_USAGE, port)
+            self.assertIn("out of range", err)
+
+    def test_internal_error_is_not_exit_1(self):
+        with mock.patch("benchrun.cli.cmd_validate", side_effect=RuntimeError("boom")):
+            code, _, err = call("validate", QUICK)
+        self.assertEqual(code, EXIT_ABORTED)
+        self.assertIn("boom", err)
+        self.assertIn("says nothing about the unit", err)
 
 
 class Console(unittest.TestCase):

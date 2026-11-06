@@ -258,6 +258,12 @@ class Faults(unittest.TestCase):
         _, client = self.with_fault("overload")
         self.assertGreaterEqual(client.number("READ?"), 9.9e37)
 
+    def test_generator_has_no_readings_to_corrupt(self):
+        self.assertEqual(parse_fault("siggen:drop:2")["siggen"], Fault("drop", 2))
+        for bad in ("siggen:garbage", "siggen:overload:1"):
+            with self.assertRaisesRegex(Exception, "no readings"):
+                parse_fault(bad)
+
     def test_parse_fault(self):
         self.assertEqual(parse_fault("dmm:drop:5")["dmm"], Fault("drop", 5))
         self.assertEqual(parse_fault("psu:hang")["psu"], Fault("hang", 0))

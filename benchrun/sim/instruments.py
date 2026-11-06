@@ -291,8 +291,13 @@ class SimGenerator(SimInstrument):
         self.model.gen_offset = 0.0
         self.model.gen_shape = "SIN"
 
+    def _count_setting(self) -> None:
+        """A generator has no readings, so its faults count settings instead."""
+        self.measured(0.0)
+
     @scpi("[SOURce]:FUNCtion[:SHAPe]", nargs=(1, 1))
     def _set_shape(self, args: List[str], suffixes: List[int]) -> None:
+        self._count_setting()
         self.model.gen_shape = parse_choice(args[0], ("SINusoid", "SQUare", "TRIangle"))
 
     @scpi("[SOURce]:FUNCtion[:SHAPe]", query=True)
@@ -301,6 +306,7 @@ class SimGenerator(SimInstrument):
 
     @scpi("[SOURce]:FREQuency[:CW]", nargs=(1, 1))
     def _set_freq(self, args: List[str], suffixes: List[int]) -> None:
+        self._count_setting()
         self.model.gen_hz = parse_number(args[0], "HZ", low=0.001, high=20e6, default=1000.0)
 
     @scpi("[SOURce]:FREQuency[:CW]", query=True)
@@ -309,6 +315,7 @@ class SimGenerator(SimInstrument):
 
     @scpi("[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]", nargs=(1, 1))
     def _set_vpp(self, args: List[str], suffixes: List[int]) -> None:
+        self._count_setting()
         self.model.gen_vpp = parse_number(args[0], "V", low=0.002, high=20.0, default=0.1)
 
     @scpi("[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]", query=True)
@@ -317,6 +324,7 @@ class SimGenerator(SimInstrument):
 
     @scpi("[SOURce]:VOLTage[:LEVel][:IMMediate]:OFFSet", nargs=(1, 1))
     def _set_offset(self, args: List[str], suffixes: List[int]) -> None:
+        self._count_setting()
         self.model.gen_offset = parse_number(args[0], "V", low=-10.0, high=10.0, default=0.0)
 
     @scpi("[SOURce]:VOLTage[:LEVel][:IMMediate]:OFFSet", query=True)
@@ -325,6 +333,7 @@ class SimGenerator(SimInstrument):
 
     @scpi("OUTPut[:STATe]", nargs=(1, 1))
     def _set_output(self, args: List[str], suffixes: List[int]) -> None:
+        self._count_setting()
         self.model.gen_on = parse_bool(args[0])
 
     @scpi("OUTPut[:STATe]", query=True)

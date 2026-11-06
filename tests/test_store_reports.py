@@ -145,6 +145,19 @@ class Queries(BenchTestCase):
         add_values(self.store, new_run(self.store, "B", status="pass"), [2.0])
         self.assertEqual(self.store.measurement_stats("p", serial="B")[0]["mean"], 2.0)
 
+    def test_stats_keep_different_limits_and_units_apart(self):
+        def add(value, units, low, high):
+            run_id = new_run(self.store, status="pass")
+            step_id = self.store.add_step(run_id, 1, "s", "test")
+            self.store.add_measurement(run_id, step_id, "m", "read", {}, value, units, low, high, "pass")
+
+        add(5.0, "V", 4.9, 5.1)
+        add(5.05, "V", 4.9, 5.1)
+        add(3.3, "V", 3.2, 3.4)
+        add(5000.0, "mV", 4900.0, 5100.0)
+        rows = [(s["units"], s["low"], s["high"], s["count"]) for s in self.store.measurement_stats("p")]
+        self.assertEqual(rows, [("V", 4.9, 5.1, 2), ("V", 3.2, 3.4, 1), ("mV", 4900.0, 5100.0, 1)])
+
     def test_one_sided_cpk(self):
         for value in (1.0, 2.0, 3.0):
             add_values(self.store, new_run(self.store, status="pass"), [value], high=5.0)
@@ -237,9 +250,25 @@ class Reports(BenchTestCase):
 
     def test_csv_missing_value_is_empty_not_zero(self):
         rows = list(csv.DictReader(io.StringIO(render_csv(self.abort_detail()))))
-        self.assertEqual(rows[-1]["verdict"], "error")
-        self.assertEqual(rows[-1]["value"], "")
-        self.assertRegex(rows[-1]["note"], "closed|lost")
+        error = next(row for row in rows if row["verdict"] == "error")
+        self.assertEqual(error["value"], "")
+        self.assertRegex(error["note"], "closed|lost")
+
+    def test_csv_shows_skipped_steps_and_the_reason(self):
+        rows = list(csv.DictReader(io.StringIO(render_csv(self.abort_detail()))))
+        self.assertEqual((rows[-1]["step"], rows[-1]["step_status"]), ("final_check", "skipped"))
+        self.assertEqual(rows[-1]["measurement"], "")
+        self.assertEqual(rows[-1]["run_status"], "aborted")
+        self.assertRegex(rows[-1]["run_reason"], "closed|lost")
+        self.assertTrue(all(len(row) == len(COLUMNS) and None not in row for row in rows))
+
+    def test_csv_for_a_run_with_no_steps_still_says_what_happened(self):
+        run_id = new_run(self.store, serial="NC", status="aborted", reason="cannot connect")
+        rows = list(csv.DictReader(io.StringIO(render_csv(self.store.run_detail(run_id)))))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["run_status"], "aborted")
+        self.assertEqual(rows[0]["run_reason"], "cannot connect")
+        self.assertEqual(rows[0]["serial"], "NC")
 
     def test_html_is_well_formed_and_complete(self):
         text = render_html(self.fail_detail())

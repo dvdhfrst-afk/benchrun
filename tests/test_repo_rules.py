@@ -9,21 +9,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 SKIP_FOLDERS = {".git", "__pycache__", ".venv", "venv"}
+TOP_FOLDERS = ("benchrun", "tests", "docs", "examples")
+TOP_FILES = ("README.md", "LICENSE", "pyproject.toml", "check.sh", ".gitignore", ".gitattributes")
 TEXT_SUFFIXES = {".py", ".md", ".json", ".toml", ".sh", ".txt", ""}
 ALLOWED_IMPORTS = {
     "argparse", "ast", "collections", "contextlib", "copy", "csv", "dataclasses", "datetime", "hashlib", "html",
     "inspect", "io", "itertools", "json", "math", "operator", "os", "pathlib", "random", "re", "select", "shutil",
-    "socket", "sqlite3", "string", "subprocess", "sys", "tempfile", "threading", "time", "typing", "unittest",
+    "socket", "sqlite3", "string", "subprocess", "sys", "tempfile", "threading", "time", "traceback", "typing", "unittest",
     "xml", "benchrun", "tests", "__future__",
 }
 
 
 def repo_files():
-    for path in sorted(ROOT.rglob("*")):
-        parts = path.relative_to(ROOT).parts
-        generated = parts[0] == "reports"
-        if path.is_file() and not generated and not (set(parts) & SKIP_FOLDERS):
-            yield path
+    """What the project ships. A user's own plans and results in the root are not checked."""
+    for name in TOP_FILES:
+        yield ROOT / name
+    for folder in TOP_FOLDERS:
+        for path in sorted((ROOT / folder).rglob("*")):
+            if path.is_file() and not (set(path.parts) & SKIP_FOLDERS):
+                yield path
 
 
 def python_files():

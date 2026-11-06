@@ -223,6 +223,62 @@ class Verdicts(BenchTestCase):
         self.assertNotEqual(values(one), values(other))
 
 
+class RawCommandsCannotFakeAPass(BenchTestCase):
+    def plan(self, *between):
+        """Read, change the multimeter by raw SCPI, then read with a limit the unit must fail."""
+        data = base_plan()
+        vout = {"name": "vout", "read": "dmm.measure_dc_voltage", "units": "V"}
+        data["steps"] = [
+            {"name": "first", "setup": [{"do": "supply.set_voltage", "volts": 12.0}], "measure": [vout]},
+            *between,
+            {"name": "last", "measure": [dict(vout, low=4.9, high=5.1)]},
+        ]
+        return data
+
+    def check(self, *between):
+        result, detail, _ = self.run_plan(self.plan(*between), dut="high-output")
+        self.assertEqual(result.status, "fail")
+        last = step_named(detail, "last")["measurements"][0]
+        self.assertEqual(last["verdict"], "fail")
+        self.assertAlmostEqual(last["value"], 5.25, delta=0.01)
+
+    def test_after_raw_write(self):
+        self.check(
+            {
+                "name": "raw",
+                "setup": [{"do": "dmm.write", "command": "CONF:CURR:DC"}],
+                "measure": [{"name": "i", "read": "dmm.query_number", "args": {"command": "READ?"}, "units": "A"}],
+            }
+        )
+
+    def test_after_raw_query(self):
+        self.check(
+            {
+                "name": "raw",
+                "measure": [{"name": "i", "read": "dmm.query_number", "args": {"command": "MEAS:CURR:DC?"}, "units": "A"}],
+            }
+        )
+
+
+class GeneratorFaults(BenchTestCase):
+    def plan(self):
+        data = base_plan()
+        data["instruments"]["gen"] = {"driver": "siggen", "timeout_s": 0.2}
+        data["steps"][0]["setup"] = [{"do": "gen.set_frequency", "hertz": 1000.0}, {"do": "gen.set_amplitude", "vpp": 1.0}]
+        return data
+
+    def test_each_kind_aborts_the_run(self):
+        for kind in ("drop", "hang", "error"):
+            with self.subTest(kind):
+                result, detail, _ = self.run_plan(self.plan(), faults={"siggen": Fault(kind, 1)})
+                self.assertEqual(result.status, "aborted")
+                self.assertIn("gen", detail["reason"])
+
+    def test_count_of_settings_is_respected(self):
+        result, _, _ = self.run_plan(self.plan(), faults={"siggen": Fault("drop", 50)})
+        self.assertEqual(result.status, "pass")
+
+
 class Aborts(BenchTestCase):
     def fault_plan(self, timeout_s=0.3):
         data = clone(base_plan())

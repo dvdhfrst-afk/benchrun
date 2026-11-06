@@ -71,7 +71,7 @@ When `ceiling < regulated` the regulator has no headroom and ripple passes throu
 | `poor-load` | `load_reg` 0.05 V/A | Load regulation |
 | `high-dropout` | `dropout0` 1.0 V | Low headroom |
 | `high-iq` | `iq` 20 mA | Quiescent current |
-| `poor-psrr` | `psrr_db` 45 dB | Ripple rejection, with an overload at 10 kHz |
+| `poor-psrr` | `psrr_db` 45 dB | Ripple rejection, with an overload at 10 kHz and, on some seeds, at 1 kHz |
 | `dead` | No output at all | Almost everything |
 
 ## Noise and repeatability
@@ -125,3 +125,7 @@ Long forms are shown. Shortened forms and optional nodes follow the usual rules:
 | `error` | Answers normally, and queues error -300. |
 | `garbage` | Answers `#BAD#`. |
 | `overload` | Answers 9.9E37. |
+
+A fault fires only if the plan reads that instrument often enough; otherwise the run is unaffected.
+The generator has no readings, so for `siggen` the count is of settings, and only `drop`, `hang` and
+`error` apply.

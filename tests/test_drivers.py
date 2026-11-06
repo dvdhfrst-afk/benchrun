@@ -265,6 +265,47 @@ class ExactCommands(unittest.TestCase):
             self.assertEqual(link.commands, [])
 
 
+class RawCommandsAndRememberedSettings(unittest.TestCase):
+    def test_multimeter_reconfigures_after_a_raw_write(self):
+        link = FakeTransport(["5.0", "5.0"])
+        meter = Dmm(link)
+        meter.measure_dc_voltage()
+        meter.write("CONF:CURR:DC")
+        meter.measure_dc_voltage()
+        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 2)
+
+    def test_multimeter_reconfigures_after_a_raw_query(self):
+        link = FakeTransport(["5.0", "0.1", "5.0"])
+        meter = Dmm(link)
+        meter.measure_dc_voltage()
+        meter.query_number("MEAS:CURR:DC?")
+        meter.measure_dc_voltage()
+        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 2)
+
+    def test_multimeter_still_skips_repeat_configuration(self):
+        link = FakeTransport(["5.0", "5.0"])
+        meter = Dmm(link)
+        meter.measure_dc_voltage()
+        meter.measure_dc_voltage()
+        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 1)
+
+
+class ConstantCurrentBit(unittest.TestCase):
+    def test_default_is_bit_10(self):
+        self.assertEqual(PowerSupply(FakeTransport(["1024"])).current_limited(), 1.0)
+        self.assertEqual(PowerSupply(FakeTransport(["256"])).current_limited(), 0.0)
+
+    def test_plan_can_name_another_bit(self):
+        supply = PowerSupply(FakeTransport(["256"]), commands={"constant_current_bit": "8"})
+        self.assertEqual(supply.current_limited(), 1.0)
+
+    def test_bad_bit_is_refused(self):
+        for bad in ("x", "32", "-1", ""):
+            self.assertIn("bit number", PowerSupply.override_problem("constant_current_bit", bad))
+        self.assertIsNone(PowerSupply.override_problem("constant_current_bit", "8"))
+        self.assertIsNone(PowerSupply.override_problem("output", "OUTP:STAT {state}"))
+
+
 class Registry(unittest.TestCase):
     def test_registered_drivers(self):
         self.assertEqual(set(DRIVERS), {"dmm", "psu", "eload", "scope", "siggen", "scpi"})

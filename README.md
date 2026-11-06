@@ -124,8 +124,11 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-2003 --sim 
 |---|---|
 | 0 | Run passed, or the command succeeded |
 | 1 | Run finished and the unit failed |
-| 2 | Bad plan, bad arguments, or nothing matching; no run was recorded |
-| 3 | Run aborted, or an instrument could not be reached |
+| 2 | Bad plan or bad arguments, or `report` found no such run; no run was recorded |
+| 3 | Run aborted, an instrument could not be reached, or the database or a report file could not be used |
+
+Code 3 wins over the verdict if a report cannot be written after the run: the printed `RESULT` line
+and the database still hold the verdict. `history` with no matches prints that and exits 0.
 
 ## How a run is judged
 
@@ -209,13 +212,15 @@ python -m benchrun report --run 3 --format junit --out reports
 
 - **HTML** is one self-contained file: verdict, instruments with `*IDN?` responses, every
   measurement, and a plot for each limited measurement over a sweep.
-- **CSV** has one row per measurement, with values at full precision.
+- **CSV** has one row per measurement, with values at full precision. A step with no measurements,
+  such as a skipped one, gets one row with the measurement columns empty.
 - **JUnit XML** has one test case per measurement. Failures and aborts show as `failure` and
   `error`, and traceability data is in the suite's properties.
 
 `history --plan` adds first-pass yield (each serial counted once, on its first run that reached a
-verdict; aborted runs say nothing about a unit). `--stats` adds per-measurement statistics, kept
-apart per sweep point, including the process capability index (Cpk). `--json` is for scripts:
+verdict; aborted runs say nothing about a unit). `--stats` adds per-measurement statistics, including
+the process capability index (Cpk). Each sweep point gets its own row, and so does each set of units
+and limits, so a run with `--set vnom=3.3` never mixes with the 5 V runs. `--json` is for scripts:
 
 ```bash
 python -m benchrun history --plan regulator-line-load --stats
@@ -227,8 +232,9 @@ python -m benchrun history --serial SN-1001 --json
 
 ## Pointing it at real instruments
 
-The plan does not change. Only the addresses do, and there are three ways to give them: edit the
-`address` fields in the plan, pass a station file, or pass single addresses.
+If your instruments speak the dialect the drivers use, the plan does not change, only the addresses.
+There are three ways to give them: edit the `address` fields in the plan, pass a station file, or
+pass single addresses.
 
 ```bash
 python -m benchrun probe examples/regulator_line_load.json --station examples/station_example.json
@@ -258,7 +264,8 @@ the drivers send, and those are widely used SCPI forms, but instruments differ. 
   python -m benchrun drivers psu --commands
   ```
 
-  Any entry can be replaced per instrument in the plan, with no code, using the same field names:
+  Any entry can be replaced per instrument in the plan, with no code, using the same field names.
+  These replacements are part of the plan, so its recorded hash changes with them:
 
   ```json
   "scope": {
@@ -268,6 +275,12 @@ the drivers send, and those are widely used SCPI forms, but instruments differ. 
   }
   ```
 
+- Whether responses are plain numbers. A reply with a unit attached, such as `5.000V`, aborts the
+  run rather than being guessed at, and so does an error query that does not answer in the form
+  `0,"No error"`. Neither form can be changed from a plan.
+- Which status bit your supply uses for constant current. `current_limited` reads bit 10 of
+  `STAT:OPER:COND?`. With the wrong bit it always reads 0, and a limit on it proves nothing. Set the
+  right one in the same `commands` section, for example `"constant_current_bit": "8"`.
 - That the timing suits your instruments. `timeout_s` is per instrument, default 5 seconds.
   `settle_s` on a step is the wait between applying a stimulus and measuring.
 - Use `"expect_idn"` with a regular expression to refuse the run if the wrong instrument answers.
@@ -292,7 +305,7 @@ it off.
 | Option | Choices |
 |---|---|
 | `--dut` | `good`, `high-output`, `poor-line`, `poor-load`, `high-dropout`, `high-iq`, `poor-psrr`, `dead` |
-| `--fault` | `instrument:kind[:after]`; instruments `dmm`, `psu`, `eload`, `scope`, `siggen`; kinds `drop`, `hang`, `error`, `garbage`, `overload` |
+| `--fault` | `instrument:kind[:after]`; instruments `dmm`, `psu`, `eload`, `scope`, `siggen`; kinds `drop`, `hang`, `error`, `garbage`, `overload` (`siggen` takes only the first three) |
 
 Use `--base-port` if ports 5025 to 5029 are taken. `--base-port 0` takes any free ports, and
 `--write-addresses FILE` records them in a file you can pass to `--station`.

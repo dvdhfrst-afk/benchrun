@@ -439,6 +439,32 @@ class Files(unittest.TestCase):
         self.assertEqual(plan.instruments["dmm"].address, "192.0.2.13:5025")
 
 
+class Encodings(unittest.TestCase):
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp(prefix="benchrun-enc-"))
+        self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
+        self.text = json.dumps(dict(base_plan(), description="25 \u00b0C"), ensure_ascii=False)
+
+    def save(self, encoding):
+        path = self.folder / f"{encoding}.json"
+        path.write_bytes(self.text.encode(encoding))
+        return path
+
+    def test_notepad_and_powershell_encodings_load(self):
+        for encoding in ("utf-8", "utf-8-sig", "utf-16"):
+            with self.subTest(encoding):
+                self.assertEqual(load_plan(self.save(encoding)).name, "small")
+
+    def test_other_encodings_are_a_plan_problem(self):
+        with self.assertRaisesRegex(PlanError, "not UTF-8"):
+            load_plan(self.save("cp1252"))
+
+    def test_station_files_too(self):
+        path = self.folder / "station.json"
+        path.write_bytes('{"addresses": {"dmm": "127.0.0.1:1"}}'.encode("utf-16"))
+        self.assertEqual(load_addresses(path), {"dmm": "127.0.0.1:1"})
+
+
 class Addresses(unittest.TestCase):
     def test_changing_addresses_changes_nothing_else(self):
         data = clone(base_plan())

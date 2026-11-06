@@ -10,6 +10,7 @@ import re
 import sqlite3
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -91,6 +92,8 @@ def cmd_sim(args: argparse.Namespace) -> int:
     faults: Dict[str, Any] = {}
     for text in args.fault or []:
         faults.update(parse_fault(text))
+    if not 0 <= args.base_port <= 65536 - len(PORT_ORDER):
+        raise PlanError([f"--base-port {args.base_port} is out of range; the top port must not pass 65535"])
     bench = SimBench(dut=args.dut, seed=args.seed, noise=args.noise, base_port=args.base_port, faults=faults)
     try:
         bench.start()
@@ -463,4 +466,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ABORTED
     except KeyboardInterrupt:
+        return EXIT_ABORTED
+    except Exception:  # Python's own exit code 1 would read as a failed unit.
+        traceback.print_exc()
+        print("error: internal error in benchrun; this says nothing about the unit", file=sys.stderr)
         return EXIT_ABORTED

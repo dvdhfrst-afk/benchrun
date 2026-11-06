@@ -322,7 +322,9 @@ class Store:
         """Per-measurement statistics across completed runs of a plan.
 
         Grouped by step, measurement and sweep point, because a value measured
-        at 7 V and at 20 V are different populations. Aborted runs are excluded.
+        at 7 V and at 20 V are different populations, and by units and limits,
+        because capability only means something against one set of limits.
+        Aborted runs are excluded.
         """
         sql = (
             "SELECT s.name AS step, m.name, m.point, m.units, m.value, m.low, m.high, m.verdict"
@@ -335,7 +337,7 @@ class Store:
             params.append(serial)
         groups: Dict[tuple, Dict[str, Any]] = {}
         for row in self.conn.execute(sql + " ORDER BY m.id", params):
-            key = (row["step"], row["name"], row["point"])
+            key = (row["step"], row["name"], row["point"], row["units"], row["low"], row["high"])
             group = groups.setdefault(
                 key,
                 {
@@ -353,7 +355,6 @@ class Store:
                 group["values"].append(row["value"])
             if row["verdict"] == "fail":
                 group["fails"] += 1
-            group["low"], group["high"] = row["low"], row["high"]
         return [_finish_stats(group) for group in groups.values()]
 
 

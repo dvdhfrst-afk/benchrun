@@ -28,6 +28,8 @@ def parse_fault(text: str) -> Dict[str, Fault]:
         if not pieces[2].isdigit():
             raise PlanError([problem])
         after = int(pieces[2])
+    if pieces[0] == "siggen" and pieces[1] in ("garbage", "overload"):
+        raise PlanError([f"bad fault {text!r}; the generator has no readings to corrupt, so use drop, hang or error"])
     return {pieces[0]: Fault(pieces[1], after)}
 
 

@@ -557,10 +557,20 @@ def parse_plan(data: Any, source_text: str = "", variables: Optional[Mapping[str
     return plan
 
 
+def _read_text(path: Union[str, Path]) -> str:
+    """Decode UTF-8, with or without a byte order mark, or UTF-16 with one."""
+    raw = Path(path).read_bytes()
+    encoding = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+    try:
+        return raw.decode(encoding)
+    except UnicodeDecodeError as exc:
+        raise PlanError([f"{path} is not UTF-8 text ({exc.reason} at byte {exc.start}); save it as UTF-8"]) from exc
+
+
 def load_plan(path: Union[str, Path], variables: Optional[Mapping[str, float]] = None) -> Plan:
     """Read and validate a plan file."""
     try:
-        text = Path(path).read_text(encoding="utf-8")
+        text = _read_text(path)
     except OSError as exc:
         raise PlanError([f"cannot read plan {path}: {exc}"]) from exc
     try:
@@ -573,7 +583,7 @@ def load_plan(path: Union[str, Path], variables: Optional[Mapping[str, float]] =
 def load_addresses(path: Union[str, Path]) -> Dict[str, str]:
     """Read a station file: ``{"addresses": {"dmm": "192.0.2.10:5025", ...}}``."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data = json.loads(_read_text(path))
     except OSError as exc:
         raise PlanError([f"cannot read station file {path}: {exc}"]) from exc
     except ValueError as exc:

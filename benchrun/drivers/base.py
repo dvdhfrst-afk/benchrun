@@ -241,13 +241,18 @@ class Instrument:
     def safe_state(self) -> None:
         """Leave the instrument harmless. Run at the end of every run."""
 
+    def _forget_settings(self) -> None:
+        """Raw SCPI can change anything, so a driver must drop what it remembers."""
+
     @action
     def write(self, command: str) -> None:
         """Send any SCPI command text, then check the error queue."""
+        self._forget_settings()
         self._send(command)
         self.check_errors(command)
 
     @reading(None)
     def query_number(self, command: str) -> float:
         """Send any SCPI query text and read a number back."""
+        self._forget_settings()
         return self._number(command)
