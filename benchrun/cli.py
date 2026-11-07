@@ -209,12 +209,38 @@ def _stop_requests_interrupt(past_saving: Callable[[], bool]) -> Iterator[None]:
             signal.signal(number, handler)
 
 
-def _ask_operator(text: str) -> None:
-    _say(f"OPERATOR: {text}")
+def _read_line() -> bool:
+    """Wait for one line on standard input. False if it has ended, or there is none.
+
+    Reads the file descriptor a byte at a time. A buffered read would take later
+    answers from a pipe with it, and would hold a lock that can stop Python exiting.
+    """
     try:
-        input("Press Enter to go on, or Ctrl+C to stop the run: ")
-    except EOFError:
-        raise OperatorUnavailable(f"the plan asks the operator to {text!r}, but no one can answer here; use --auto-confirm in a script") from None
+        descriptor = sys.stdin.fileno()
+        got_any = False
+        while True:
+            byte = os.read(descriptor, 1)
+            if not byte:
+                return got_any
+            if byte == b"\n":
+                return True
+            got_any = True
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _ask_operator(text: str) -> None:
+    """Wait in another thread. A read on the main thread would hold off every stop request, with outputs on."""
+    _say(f"OPERATOR: {text}")
+    _say("Press Enter to go on, or Ctrl+C to stop the run.")
+    answers = []
+    reader = threading.Thread(target=lambda: answers.append(_read_line()), daemon=True)
+    reader.start()
+    while reader.is_alive():
+        reader.join(0.1)
+    if not answers or not answers[0]:
+        time.sleep(0.2)  # On Windows, Ctrl+C also ends the read. Give it the moment it needs to arrive.
+        raise OperatorUnavailable(f"the plan asks the operator to {text!r}, but no one can answer here; use --auto-confirm in a script")
 
 
 def _confirm_automatically(text: str) -> None:

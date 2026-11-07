@@ -51,6 +51,7 @@
 - A limit with low above high at run time blamed the unit; it now aborts.
 - A reading exactly on a limit could fail through binary rounding, such as 0.0009 A against 0.9 mA.
 - Closing the console window on Windows did not reach the switch-off.
+- A stop request while waiting at an operator prompt on Windows was held off until someone pressed Enter.
 - A stop request after the switch-off could leave a run marked as still going, or lose its result line.
 - `reply_pattern` could read `0,500 V` as 500, and got in the way of `*OPC?` and status queries.
 - Text that cannot be stored, from a terminal in another encoding or a lone escape in a plan, printed a

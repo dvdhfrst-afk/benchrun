@@ -185,7 +185,8 @@ Aborted outranks failed, because an aborted run was not completed. A few cases w
   left out of yield and statistics.
 
 - Limits are inclusive, and either side may be left out.
-- A measurement with no limits is recorded with the verdict `info` and cannot fail a unit.
+- A measurement with no limits is recorded with the verdict `info`, and its value cannot fail a unit.
+  Having no value can: an overload, or a calculation with no answer, still counts as a `fail`.
 - A reading past the instrument's range (the SCPI overload value 9.9E37) is a `fail` for the unit,
   not an abort: the instrument is working, and the signal is out of range.
 - A calculation with no answer, such as a ratio dividing by a dead output, is also a `fail`, and so
@@ -331,8 +332,9 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-4001 --stat
 python -m benchrun run examples/regulator_quick.json --serial SN-4002 --address supply=192.0.2.11:5025 --address dmm=192.0.2.13:5025
 ```
 
-The addresses in the first and third of these are placeholders, and `my_station.json` is your own
-file, so as written they end in a clear connection error. A station file looks like
+The addresses in the first and third of these are placeholders, so as written they end in a
+connection error. `my_station.json` is your own file, and until it exists the second says it cannot
+read it. A station file looks like
 `{"addresses": {"supply": "192.0.2.11:5025"}}`; see
 [examples/station_example.json](examples/station_example.json). A key under `addresses` can also be a driver name,
 which covers every instrument using that driver. It can describe more than a plan uses, and any

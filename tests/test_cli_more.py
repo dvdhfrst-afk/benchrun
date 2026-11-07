@@ -1,5 +1,6 @@
 """Commands added for everyday use, examples, packaging facts and what the README says."""
 
+import _thread
 import contextlib
 import csv
 import io
@@ -11,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -214,25 +216,32 @@ class RunOptions(Case):
         return EXAMPLES / "fixture_with_operator.json"
 
     def test_prompt_waits_for_the_operator(self):
-        with mock.patch("builtins.input", return_value="") as asked:
+        with mock.patch("benchrun.cli._read_line", return_value=True) as asked:
             code, out, _ = self.sim_run(plan=self.prompt_plan())
         self.assertEqual(code, EXIT_PASS, out)
         asked.assert_called_once()
         self.assertIn("Seat the unit", out)
 
     def test_prompt_with_nobody_there_aborts_and_says_how(self):
-        with mock.patch("builtins.input", side_effect=EOFError):
+        with mock.patch("benchrun.cli._read_line", return_value=False):
             code, out, err = self.sim_run(plan=self.prompt_plan())
         self.assertEqual(code, EXIT_ABORTED)
         self.assertIn("--auto-confirm", out + err)
 
     def test_prompt_ctrl_c_aborts(self):
-        with mock.patch("builtins.input", side_effect=KeyboardInterrupt):
+        def pressed() -> bool:
+            _thread.interrupt_main()
+            time.sleep(5)  # A read that never returns: the run must not wait for it.
+            return True
+
+        started = time.monotonic()
+        with mock.patch("benchrun.cli._read_line", pressed):
             code, _, _ = self.sim_run(plan=self.prompt_plan())
         self.assertEqual(code, EXIT_ABORTED)
+        self.assertLess(time.monotonic() - started, 4)
 
     def test_auto_confirm(self):
-        with mock.patch("builtins.input", side_effect=AssertionError("must not ask")):
+        with mock.patch("benchrun.cli._read_line", side_effect=AssertionError("must not ask")):
             code, out, _ = self.sim_run("--auto-confirm", plan=self.prompt_plan())
         self.assertEqual(code, EXIT_PASS, out)
         self.assertIn("continued automatically", out)

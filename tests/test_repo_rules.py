@@ -17,7 +17,7 @@ TOP_FILES = (
 TEXT_SUFFIXES = {".py", ".md", ".json", ".toml", ".sh", ".txt", ".csv", ".html", ".xml", ""}
 ALLOWED_IMPORTS = {
     "_thread", "argparse", "ast", "collections", "contextlib", "copy", "csv", "ctypes", "dataclasses", "datetime", "hashlib", "html",
-    "inspect", "io", "itertools", "json", "math", "operator", "os", "pathlib", "random", "re", "select", "shutil",
+    "inspect", "io", "itertools", "json", "math", "operator", "os", "pathlib", "pty", "random", "re", "select", "shutil",
     "shlex", "signal", "socket", "sqlite3", "stat", "string", "subprocess", "sys", "tempfile", "threading", "time", "traceback", "typing", "unittest",
     "xml", "benchrun", "tests", "__future__",
 }

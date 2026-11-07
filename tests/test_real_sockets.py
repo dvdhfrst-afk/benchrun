@@ -26,6 +26,26 @@ FAKE = ROOT / "tests" / "fake_instrument.py"
 TIMEOUT_S = 0.4
 
 
+PRESS_ENTER = """
+import ctypes
+from ctypes import wintypes
+
+class Key(ctypes.Structure):
+    _fields_ = [("kind", wintypes.WORD), ("down", wintypes.BOOL), ("repeat", wintypes.WORD), ("code", wintypes.WORD),
+                ("scan", wintypes.WORD), ("char", wintypes.WCHAR), ("state", wintypes.DWORD)]
+
+k = ctypes.windll.kernel32
+k.CreateFileW.restype = wintypes.HANDLE
+k.WriteConsoleInputW.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
+k.FreeConsole()
+k.AttachConsole(%d)
+handle = k.CreateFileW("CONIN$", 0xC0000000, 3, None, 3, 0, None)
+keys = (Key * 2)(Key(1, 1, 1, 13, 28, "\\r", 0), Key(1, 0, 1, 13, 28, "\\r", 0))
+written = wintypes.DWORD()
+assert k.WriteConsoleInputW(handle, keys, 2, ctypes.byref(written)) and written.value == 2
+"""
+
+
 def small_plan(settle_s: float = 0.0, read_supply: bool = False, points: int = 6) -> Dict:
     measures = [{"name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "low": 4.9, "high": 5.1}]
     if read_supply:
@@ -374,6 +394,96 @@ class StoppedFromOutside(SocketCase):
         self.assertOutputOff(supply_log)
         self.assertEqual(self.record()["status"], "aborted")
         self.assertIn("interrupted", self.record()["reason"])
+
+    def start_at_a_prompt(self, **popen: object) -> Tuple[subprocess.Popen, Path]:
+        supply, supply_log = self.fake("supply")
+        dmm, _ = self.fake("dmm")
+        plan = small_plan()
+        plan["setup"].append({"prompt": "Close the lid"})
+        process = subprocess.Popen(self.command(plan, {"supply": supply, "dmm": dmm}), cwd=ROOT, **popen)
+        self.addCleanup(process.wait)
+        self.addCleanup(process.kill)
+        deadline = time.monotonic() + 30
+        while "OUTPUT on" not in self.journal(supply_log) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.7)
+        return process, supply_log
+
+    def test_stop_request_at_an_operator_prompt_switches_off(self):
+        flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}
+        process, supply_log = self.start_at_a_prompt(
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **flags
+        )
+        process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM)
+        out, err = process.communicate(timeout=30)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(process.returncode, 3, out + err)
+        self.assertIn("interrupted", self.record()["reason"])
+        self.assertOutputOff(supply_log)
+
+    def test_enter_at_an_operator_prompt_goes_on(self):
+        process, supply_log = self.start_at_a_prompt(stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        out, err = process.communicate("\n", timeout=60)
+        self.assertEqual(process.returncode, 0, out + err)
+        self.assertEqual(self.record()["status"], "pass")
+        self.assertOutputOff(supply_log)
+
+    @unittest.skipUnless(os.name == "nt", "a Windows console")
+    def test_closing_the_console_window_at_an_operator_prompt_switches_off(self):
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = 0
+        process, supply_log = self.start_at_a_prompt(creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=startup)
+        closer = (
+            "import ctypes; k = ctypes.windll.kernel32; k.FreeConsole(); k.AttachConsole(%d); "
+            "ctypes.windll.user32.PostMessageW(k.GetConsoleWindow(), 0x10, 0, 0)" % process.pid
+        )
+        subprocess.run([sys.executable, "-c", closer], timeout=30)  # It goes down with the console.
+        process.wait(timeout=30)
+        self.assertOutputOff(supply_log)
+        self.assertEqual(self.record()["status"], "aborted")
+
+    def start_at_a_prompt_in_a_console(self) -> Tuple[subprocess.Popen, Path]:
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = 0
+        return self.start_at_a_prompt(creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=startup)
+
+    @unittest.skipUnless(os.name == "nt", "a Windows console")
+    def test_enter_key_in_a_console_goes_on(self):
+        process, supply_log = self.start_at_a_prompt_in_a_console()
+        subprocess.run([sys.executable, "-c", PRESS_ENTER % process.pid], timeout=30, check=True)
+        self.assertEqual(process.wait(timeout=60), 0)
+        self.assertEqual(self.record()["status"], "pass")
+        self.assertOutputOff(supply_log)
+
+    @unittest.skipUnless(os.name == "nt", "a Windows console")
+    def test_ctrl_c_in_a_console_at_an_operator_prompt_switches_off(self):
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)  # A background test runner can pass on "ignore Ctrl+C".
+        process, supply_log = self.start_at_a_prompt_in_a_console()
+        presser = (
+            "import ctypes; k = ctypes.windll.kernel32; k.FreeConsole(); k.AttachConsole(%d); "
+            "k.SetConsoleCtrlHandler(None, True); k.GenerateConsoleCtrlEvent(0, 0)" % process.pid
+        )
+        subprocess.run([sys.executable, "-c", presser], timeout=30, check=True)
+        self.assertEqual(process.wait(timeout=30), 3)
+        self.assertIn("interrupted", self.record()["reason"])
+        self.assertOutputOff(supply_log)
+
+    @unittest.skipIf(os.name == "nt", "a terminal device")
+    def test_enter_in_a_terminal_goes_on(self):
+        import pty
+
+        ours, theirs = pty.openpty()
+        self.addCleanup(os.close, ours)
+        self.addCleanup(os.close, theirs)
+        process, supply_log = self.start_at_a_prompt(stdin=theirs, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.write(ours, b"\n")
+        self.assertEqual(process.wait(timeout=60), 0)
+        self.assertEqual(self.record()["status"], "pass")
+        self.assertOutputOff(supply_log)
 
     def test_stop_request_switches_off_and_records(self):
         process, supply_log = self.start_slow_run()
