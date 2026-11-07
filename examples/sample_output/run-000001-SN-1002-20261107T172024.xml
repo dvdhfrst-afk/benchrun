@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="regulator-quick" tests="3" failures="3" errors="0" skipped="0" time="0.072" timestamp="2026-11-07T17:20:24.299+00:00">
+    <properties>
+      <property name="run_id" value="1" />
+      <property name="serial" value="SN-1002" />
+      <property name="run_status" value="fail" />
+      <property name="reason" value="" />
+      <property name="operator" value="" />
+      <property name="note" value="" />
+      <property name="selected_steps" value="" />
+      <property name="plan_version" value="1.0" />
+      <property name="plan_sha256" value="7cd83e75e98ca8af5907645dc841119bf0b8fc3ff7e367287308f6c8ed135397" />
+      <property name="idn.supply" value="benchrun,SIM-PSU,SIM0002,1.0" />
+      <property name="address.supply" value="127.0.0.1:53324" />
+      <property name="idn.dmm" value="benchrun,SIM-DMM,SIM0001,1.0" />
+      <property name="address.dmm" value="127.0.0.1:53323" />
+    </properties>
+    <testcase classname="regulator-quick.output_voltage" name="vout[vin=8]" time="0">
+      <failure message="5.24595902 V outside limits 4.9 to 5.1">5.24595902 V outside limits 4.9 to 5.1</failure>
+    </testcase>
+    <testcase classname="regulator-quick.output_voltage" name="vout[vin=12]" time="0">
+      <failure message="5.25002171 V outside limits 4.9 to 5.1">5.25002171 V outside limits 4.9 to 5.1</failure>
+    </testcase>
+    <testcase classname="regulator-quick.output_voltage" name="vout[vin=16]" time="0">
+      <failure message="5.25394382 V outside limits 4.9 to 5.1">5.25394382 V outside limits 4.9 to 5.1</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

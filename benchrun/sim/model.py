@@ -5,6 +5,11 @@ Wiring::
     supply (+ generator ripple) --> VIN  [regulator]  VOUT --> electronic load
                                                            --> multimeter
     oscilloscope CH1 = VOUT, CH2 = VIN
+    frequency counter CH1 = generator output
+    switch channel 101 = VOUT, channel 102 = VIN, both to the multimeter
+    source measure unit and multimeter resistance = a fixture resistor
+    LCR meter = the output capacitor
+    multi-output supply outputs = one resistor each
 
 The equations are documented in docs/simulators.md. They are deliberately simple
 enough to work out by hand, so test results can be checked independently.
@@ -14,10 +19,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from typing import Dict
+from typing import Dict, Set
 
 UVLO_V = 2.5  # Below this input voltage the regulator is off.
 COLLAPSED_VIN_V = 0.2  # Input rail once the supply current limit collapses it.
+MUX_VOUT = 101  # Switch channel that connects VOUT to the multimeter.
+MUX_VIN = 102  # Switch channel that connects VIN to the multimeter.
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,11 @@ class RegulatorParams:
     psrr_db: float = 70.0  # Ripple rejection at low frequency, dB.
     psrr_corner_hz: float = 1000.0  # Rejection falls 20 dB per decade above this.
     alive: bool = True  # False models a unit with no output at all.
+    sense_ohms: float = 10000.0  # Fixture resistor, reached by the multimeter and the source measure unit.
+    lead_ohms: float = 0.2  # Test leads, seen only by a two-wire resistance reading.
+    cout_f: float = 10e-6  # Output capacitor, reached by the LCR meter.
+    cout_d: float = 0.02  # Its dissipation factor.
+    rail_ohms: float = 100.0  # What each output of the multi-output supply feeds.
 
 
 DUT_VARIANTS: Dict[str, RegulatorParams] = {
@@ -79,6 +91,19 @@ class BenchModel:
         self.gen_hz = 1000.0
         self.gen_offset = 0.0
         self.gen_shape = "SIN"
+        self.mux_in_use = False  # False until a plan uses the switch: the meter is then wired directly.
+        self.mux_closed: Set[int] = set()
+
+    def meter_volts(self) -> float:
+        """What the multimeter's input sees: VOUT, or whatever the switch connects to it."""
+        op = self.solve()
+        if not self.mux_in_use:
+            return op.vout
+        if MUX_VOUT in self.mux_closed:
+            return op.vout
+        if MUX_VIN in self.mux_closed:
+            return op.vin
+        return 0.0
 
     def psrr_db(self, hz: float) -> float:
         """Ripple rejection at ``hz``, a single-pole roll-off from the corner."""

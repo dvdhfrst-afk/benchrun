@@ -24,7 +24,11 @@ from benchrun.units import compatible
 Number = Union[int, float]
 MaybeExpr = Union[Number, str, bool, None, Expression]
 
-MAX_SWEEP_POINTS = 100000
+MAX_SWEEP_POINTS = 100000  # Per step, across all of its nested sweeps.
+MAX_SAMPLES = 100000
+MAX_WAIT_S = 86400.0
+MAX_TIMEOUT_S = 3600.0
+MAX_PLAN_BYTES = 16 * 1024 * 1024
 DEFAULT_TIMEOUT_S = 5.0
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -45,16 +49,18 @@ class InstrumentSpec:
     timeout_s: float = DEFAULT_TIMEOUT_S
     expect_idn: Optional[str] = None
     commands: Dict[str, str] = field(default_factory=dict)
+    reply_pattern: Optional[str] = None
 
 
 @dataclass
 class Call:
-    """One line of a setup sequence: an instrument action, or a pause."""
+    """One line of a setup sequence: an instrument action, a pause, or a request to the operator."""
 
     instrument: Optional[str] = None
     method: Optional[str] = None
     args: Dict[str, MaybeExpr] = field(default_factory=dict)
     wait_s: MaybeExpr = None
+    prompt: Optional[str] = None
 
 
 @dataclass
@@ -159,14 +165,27 @@ class _Parser:
             return False
         return True
 
-    def number(self, where: str, value: Any, minimum: Optional[float] = None) -> Optional[float]:
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    def number(
+        self, where: str, value: Any, minimum: Optional[float] = None, maximum: Optional[float] = None
+    ) -> Optional[float]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             self.problem(where, f"expected a number, got {value!r}")
+            return None
+        try:
+            value = float(value)
+        except OverflowError:
+            self.problem(where, f"number is too large: {str(value)[:40]}")
+            return None
+        if not math.isfinite(value):
+            self.problem(where, f"expected a finite number, got {value!r}")
             return None
         if minimum is not None and value < minimum:
             self.problem(where, f"must be at least {minimum:g}, got {value!r}")
             return None
-        return float(value)
+        if maximum is not None and value > maximum:
+            self.problem(where, f"must be at most {maximum:g}, got {value!r}")
+            return None
+        return value
 
     def maybe_expression(self, where: str, value: Any, scope: Set[str]) -> MaybeExpr:
         """Turn a ``"=..."`` string into an Expression and check its names."""
@@ -188,6 +207,12 @@ class _Parser:
         if shape:
             self.problem(where, f"expression {text!r}: {shape}")
             return None
+        if not parsed.names:  # With nothing to wait for, a bad result can be told now.
+            try:
+                parsed.evaluate({})
+            except ExpressionError as exc:
+                self.problem(where, str(exc))
+                return None
         return parsed
 
     # Top level -----------------------------------------------------------
@@ -239,7 +264,9 @@ class _Parser:
                 variables[key] = parsed
         for key, value in self.overrides.items():
             if key in variables:
-                variables[key] = float(value)
+                parsed = self.number(f"--set {key}", value)
+                if parsed is not None:
+                    variables[key] = parsed
             else:
                 self.problem("--set", f"plan has no variable named {key!r}")
         return variables
@@ -254,7 +281,7 @@ class _Parser:
                 continue
             spec = self.as_dict(where, spec)
             self.check_keys(
-                where, spec, ("driver", "address", "timeout_s", "expect_idn", "commands"), ("driver",)
+                where, spec, ("driver", "address", "timeout_s", "expect_idn", "commands", "reply_pattern"), ("driver",)
             )
             driver = spec.get("driver")
             if driver not in DRIVERS:
@@ -262,20 +289,36 @@ class _Parser:
                 continue
             address = spec.get("address")
             if address is not None:
-                try:
-                    parse_address(str(address))
-                except PlanError as exc:
-                    self.problem(where, str(exc))
-            timeout = self.number(f"{where}.timeout_s", spec.get("timeout_s", DEFAULT_TIMEOUT_S), 0.001)
+                if not isinstance(address, str):
+                    self.problem(where, f"address must be a string like \"192.0.2.10:5025\", got {address!r}")
+                    address = None
+                else:
+                    try:
+                        parse_address(address)
+                    except PlanError as exc:
+                        self.problem(where, str(exc))
+            timeout = self.number(f"{where}.timeout_s", spec.get("timeout_s", DEFAULT_TIMEOUT_S), 0.001, MAX_TIMEOUT_S)
             expect = spec.get("expect_idn")
             if expect is not None:
                 try:
                     re.compile(str(expect))
                 except re.error as exc:
                     self.problem(where, f"expect_idn is not a valid regular expression: {exc}")
+            pattern = spec.get("reply_pattern")
+            if pattern is not None:
+                try:
+                    if not isinstance(pattern, str) or re.compile(pattern).groups != 1:
+                        self.problem(where, "reply_pattern must be a regular expression with one (group) around the number")
+                        pattern = None
+                except re.error as exc:
+                    self.problem(where, f"reply_pattern is not a valid regular expression: {exc}")
+                    pattern = None
             commands = self.as_dict(f"{where}.commands", spec.get("commands", {}))
             for key, template in commands.items():
-                trouble = DRIVERS[driver].override_problem(key, str(template))
+                if not isinstance(template, str):
+                    self.problem(f"{where}.commands", f"{key} must be a string, got {template!r}")
+                    continue
+                trouble = DRIVERS[driver].override_problem(key, template)
                 if trouble:
                     self.problem(f"{where}.commands", trouble)
             self.instruments[name] = InstrumentSpec(
@@ -285,6 +328,7 @@ class _Parser:
                 timeout_s=timeout if timeout is not None else DEFAULT_TIMEOUT_S,
                 expect_idn=None if expect is None else str(expect),
                 commands={str(k): str(v) for k, v in commands.items()},
+                reply_pattern=pattern,
             )
 
     # Calls ---------------------------------------------------------------
@@ -302,14 +346,24 @@ class _Parser:
 
     def parse_call(self, where: str, raw: Any, scope: Set[str]) -> Optional[Call]:
         raw = self.as_dict(where, raw)
+        if "prompt" in raw:
+            self.check_keys(where, raw, ("prompt",))
+            text = raw["prompt"]
+            if where.startswith("teardown"):
+                self.problem(where, "teardown cannot wait for the operator, because it must always finish")
+                return None
+            if not isinstance(text, str) or not text.strip():
+                self.problem(where, "prompt must be text for the operator")
+                return None
+            return Call(prompt=text)
         if "wait_s" in raw:
             self.check_keys(where, raw, ("wait_s",))
             wait = self.maybe_expression(f"{where}.wait_s", raw["wait_s"], scope)
             if not isinstance(wait, Expression):
-                self.number(f"{where}.wait_s", wait, 0.0)
+                self.number(f"{where}.wait_s", wait, 0.0, MAX_WAIT_S)
             return Call(wait_s=wait)
         if "do" not in raw:
-            self.problem(where, "expected 'do' or 'wait_s'")
+            self.problem(where, "expected 'do', 'wait_s' or 'prompt'")
             return None
         instrument, method = self.split_target(where, raw["do"])
         if instrument is None:
@@ -375,7 +429,13 @@ class _Parser:
         )
         sweeps = self.parse_sweeps(where, item.get("sweep", []), plan_scope)
         point_scope = set(plan_scope) | {s.var for s in sweeps}
-        settle = self.number(f"{where}.settle_s", item.get("settle_s", 0.0), 0.0)
+        total_points = 1
+        for sweep in sweeps:
+            total_points *= len(sweep.values)
+        if total_points > MAX_SWEEP_POINTS:
+            self.problem(where, f"sweeps add up to {total_points} points; the most allowed in a step is {MAX_SWEEP_POINTS}")
+            sweeps = []
+        settle = self.number(f"{where}.settle_s", item.get("settle_s", 0.0), 0.0, MAX_WAIT_S)
         stop_on_fail = item.get("stop_on_fail", False)
         if not isinstance(stop_on_fail, bool):
             self.problem(where, "stop_on_fail must be true or false")
@@ -433,7 +493,7 @@ class _Parser:
         if "values" in raw:
             if any(k in raw for k in ("start", "stop", "step", "points")):
                 self.problem(where, "use either 'values' or 'start' and 'stop', not both")
-            values = [self.number(where, v) for v in self.as_list(where, raw["values"])]
+            values = [self.number(where, v) for v in self.as_list(where, raw["values"])[: MAX_SWEEP_POINTS + 1]]
             clean = [v for v in values if v is not None]
             if not clean:
                 self.problem(where, "sweep has no values")
@@ -455,18 +515,19 @@ class _Parser:
                 self.problem(where, f"points must be a whole number from 2 to {MAX_SWEEP_POINTS}")
                 return None
             increment = (stop - start) / (points - 1)
-            return Sweep(var, [round(start + i * increment, 12) for i in range(points)])
+            return Sweep(var, [_tidy(start + i * increment) for i in range(points)])
         step = self.number(f"{where}.step", raw["step"])
         if step is None:
             return None
         if step == 0 or (stop - start) * step < 0:
             self.problem(where, f"step {step:g} never gets from {start:g} to {stop:g}")
             return None
-        count = int(math.floor((stop - start) / step + 1e-9)) + 1
-        if count > MAX_SWEEP_POINTS:
-            self.problem(where, f"sweep has {count} points; the most allowed is {MAX_SWEEP_POINTS}")
+        ratio = (stop - start) / step
+        if not math.isfinite(ratio) or ratio >= MAX_SWEEP_POINTS:
+            self.problem(where, f"sweep has more than {MAX_SWEEP_POINTS} points, the most allowed")
             return None
-        return Sweep(var, [round(start + i * step, 12) for i in range(count)])
+        count = int(math.floor(ratio + 1e-9)) + 1
+        return Sweep(var, [_tidy(start + i * step) for i in range(count)])
 
     def parse_measure(
         self, where: str, raw: Any, scope: Set[str], taken: Set[str], in_summary: bool
@@ -537,8 +598,8 @@ class _Parser:
                 self.problem(where, f"units {measure.units!r} do not fit {raw['read']}, which returns {reading_unit!r}")
                 return None
         samples = raw.get("samples", 1)
-        if isinstance(samples, bool) or not isinstance(samples, int) or samples < 1:
-            self.problem(where, f"samples must be a whole number of at least 1, got {samples!r}")
+        if isinstance(samples, bool) or not isinstance(samples, int) or not 1 <= samples <= MAX_SAMPLES:
+            self.problem(where, f"samples must be a whole number from 1 to {MAX_SAMPLES}, got {samples!r}")
             samples = 1
         measure.instrument = instrument
         measure.method = method
@@ -546,6 +607,29 @@ class _Parser:
         measure.samples = samples
         measure.reading_unit = reading_unit if reading_unit is not None else measure.units
         return measure
+
+
+def _tidy(value: float) -> float:
+    """Remove binary noise from a sweep value, keeping 12 significant digits however small it is."""
+    return float(f"{value:.12g}")
+
+
+def _no_repeats(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    """JSON lets a key repeat and keeps the last, which can silently remove a limit."""
+    found: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError(f"the key {key!r} appears twice in one object")
+        found[key] = value
+    return found
+
+
+def _no_constants(word: str) -> None:
+    raise ValueError(f"{word} is not a number that a plan can use")
+
+
+def _decode_json(text: str) -> Any:
+    return json.loads(text, object_pairs_hook=_no_repeats, parse_constant=_no_constants)
 
 
 def parse_plan(data: Any, source_text: str = "", variables: Optional[Mapping[str, float]] = None) -> Plan:
@@ -559,7 +643,10 @@ def parse_plan(data: Any, source_text: str = "", variables: Optional[Mapping[str
 
 def _read_text(path: Union[str, Path]) -> str:
     """Decode UTF-8, with or without a byte order mark, or UTF-16 with one."""
-    raw = Path(path).read_bytes()
+    file_path = Path(path)
+    if file_path.stat().st_size > MAX_PLAN_BYTES:
+        raise PlanError([f"{path} is larger than {MAX_PLAN_BYTES // (1024 * 1024)} MiB, which is too big to be a plan"])
+    raw = file_path.read_bytes()
     encoding = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
     try:
         return raw.decode(encoding)
@@ -574,24 +661,31 @@ def load_plan(path: Union[str, Path], variables: Optional[Mapping[str, float]] =
     except OSError as exc:
         raise PlanError([f"cannot read plan {path}: {exc}"]) from exc
     try:
-        data = json.loads(text)
+        data = _decode_json(text)
     except ValueError as exc:
         raise PlanError([f"{path} is not valid JSON: {exc}"]) from exc
+    except RecursionError:
+        raise PlanError([f"{path} is too deeply nested to be a plan"]) from None
     return parse_plan(data, text, variables)
 
 
 def load_addresses(path: Union[str, Path]) -> Dict[str, str]:
     """Read a station file: ``{"addresses": {"dmm": "192.0.2.10:5025", ...}}``."""
     try:
-        data = json.loads(_read_text(path))
+        data = _decode_json(_read_text(path))
     except OSError as exc:
         raise PlanError([f"cannot read station file {path}: {exc}"]) from exc
     except ValueError as exc:
         raise PlanError([f"station file {path} is not valid JSON: {exc}"]) from exc
+    except RecursionError:
+        raise PlanError([f"station file {path} is too deeply nested"]) from None
     addresses = data.get("addresses") if isinstance(data, dict) else None
     if not isinstance(addresses, dict):
         raise PlanError([f'station file {path} needs an object like {{"addresses": {{"dmm": "host:5025"}}}}'])
-    return {str(k): str(v) for k, v in addresses.items()}
+    wrong = [key for key, value in addresses.items() if not isinstance(value, str)]
+    if wrong:
+        raise PlanError([f'station file {path}: the address for {key!r} must be a string like "host:5025"' for key in wrong])
+    return {str(k): v for k, v in addresses.items()}
 
 
 def match_station(plan: Plan, station: Mapping[str, str]) -> Tuple[Dict[str, str], List[str]]:
@@ -613,6 +707,15 @@ def match_station(plan: Plan, station: Mapping[str, str]) -> Tuple[Dict[str, str
         if spec.name not in station and spec.driver in station:
             addresses[spec.name] = station[spec.driver]
     return addresses, unused
+
+
+def select_steps(plan: Plan, names: Sequence[str]) -> List[str]:
+    """Check names given to ``run --step`` against the plan."""
+    known = [step.name for step in plan.steps]
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise PlanError([f"--step {name}: plan has no such step; it has: {', '.join(known)}" for name in unknown])
+    return list(names)
 
 
 def apply_addresses(plan: Plan, addresses: Mapping[str, str]) -> None:

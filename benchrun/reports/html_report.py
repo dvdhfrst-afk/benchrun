@@ -146,11 +146,24 @@ def render_html(detail: Dict[str, Any]) -> str:
     ]
     if detail["reason"]:
         out.append(f'<div class="reason"><strong>Why the run was aborted:</strong> {_esc(detail["reason"])}</div>')
+    if detail["status"] == "running":
+        out.append(
+            '<div class="reason"><strong>This run never finished.</strong> Either it is still going, or the process '
+            "stopped before it could record a result. Everything below was saved as it was measured. Check the "
+            "bench: an output may still be on.</div>"
+        )
+    if detail.get("selected_steps") is not None:
+        out.append(
+            '<div class="reason"><strong>Only some steps were run:</strong> '
+            f'{_esc(", ".join(detail["selected_steps"]))}. This result does not cover the whole plan, and it is left '
+            "out of yield and statistics.</div>"
+        )
     out.append('<h2>Run</h2><div class="scroll"><table><tbody>')
     variables = ", ".join(f"{k}={v:g}" for k, v in detail["variables"].items())
     for label, value in (
         ("Serial number", detail["serial"]),
         ("Operator", detail["operator"]),
+        ("Note", detail.get("note")),
         ("Started (UTC)", detail["started_at"]),
         ("Finished (UTC)", detail["finished_at"]),
         ("Plan variables", variables),

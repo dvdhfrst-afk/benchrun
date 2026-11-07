@@ -1,7 +1,13 @@
 # Plan format
 
-A plan is a JSON file. Unknown keys are errors, so a typo such as `"hihg"` is caught by `validate`
-instead of silently removing a limit.
+A plan is a JSON file in UTF-8 (UTF-16 with a byte order mark is also read, because some Windows
+tools write it). Unknown keys are errors, so a typo such as `"hihg"` is caught by `validate` instead
+of silently removing a limit. A key given twice in one object is an error for the same reason, and so
+are `NaN` and `Infinity`.
+
+Limits on size, so a bad file cannot fill memory: a plan file is at most 16 MiB, a step's sweeps
+multiply out to at most 100,000 points, an expression is at most 2,000 characters, and a wait is at
+most 24 hours.
 
 ## Top level
 
@@ -33,11 +39,12 @@ only letters, digits and underscores.
 
 | Key | Required | Meaning |
 |---|---|---|
-| `driver` | yes | `dmm`, `psu`, `eload`, `scope`, `siggen`, or `scpi` for raw commands only. |
+| `driver` | yes | `dmm`, `psu`, `psu_multi`, `eload`, `scope`, `siggen`, `smu`, `counter`, `switch`, `lcr`, or `scpi` for raw commands only. See [drivers.md](drivers.md). The `scpi` driver knows nothing about outputs, so its plan's `teardown` must switch them off. |
 | `address` | no | `host`, `host:port` or `[ipv6]:port`. The default port is 5025. Must be set here, or by `--station` or `--address`. |
 | `timeout_s` | no | Seconds to wait for a response. Default 5. |
 | `expect_idn` | no | Regular expression searched for in the `*IDN?` response. No match aborts the run. |
-| `commands` | no | Replacement SCPI templates, by the keys that `drivers NAME --commands` lists. On `psu`, the key `constant_current_bit` holds a bit number, not a template. |
+| `commands` | no | Replacement SCPI templates, by the keys that `drivers NAME --commands` lists. On `psu`, the key `constant_current_bit` holds a bit number, not a template. Templates are printable ASCII with only the same field names; a format is limited to plain ones such as `.6g`. |
+| `reply_pattern` | no | Regular expression with one group, for instruments that add text around a number. `"([-+.\\dEe]+)\\s*V"` reads `5.000 V` as 5.000. A reply that does not match aborts the run. |
 
 At the start of a run each instrument is connected and identified, its response is recorded, and
 then it gets `*CLS` and `*RST`.
@@ -49,7 +56,12 @@ A call is one line of `setup`, `apply`, `cleanup` or `teardown`:
 ```json
 { "do": "supply.set_voltage", "volts": "=vin" }
 { "wait_s": 0.25 }
+{ "prompt": "Seat the unit and close the lid" }
 ```
+
+`prompt` stops until the operator presses Enter; Ctrl+C aborts the run. Where no one can answer the
+run aborts, unless `--auto-confirm` was given. It is refused in `teardown`, which must not wait for
+anyone: an unattended bench has to reach its safe state.
 
 Other keys of a `do` call are the method's arguments. Every driver also has `write`, which sends
 any SCPI text and checks the error queue:
@@ -57,6 +69,9 @@ any SCPI text and checks the error queue:
 ```json
 { "do": "dmm.write", "command": "VOLT:DC:NULL ON" }
 ```
+
+And `wait_complete`, which waits for the instrument with `*OPC?`. Commands are printable ASCII, and
+anything else is refused, because a line break inside one would send a second command.
 
 ## Steps
 
@@ -117,7 +132,7 @@ A value calculated from others:
 | `units` | Must be compatible with what the reading returns; values and limits are in these units. For `read` it defaults to the reading's unit. For `calc` it is any label. |
 | `low`, `high` | Inclusive limits, as numbers or expressions. Either may be left out. With neither, the verdict is `info`. |
 
-Base units are `V`, `Vpp`, `Vrms`, `A`, `W`, `Hz`, `s`, `Ohm`, `dB` and `%`, with prefixes `p`, `n`,
+Base units are `V`, `Vpp`, `Vrms`, `A`, `W`, `Hz`, `s`, `Ohm`, `F`, `H`, `S`, `dB` and `%`, with prefixes `p`, `n`,
 `u`, `m`, `k`, `M` and `G`. `Vpp` and `Vrms` are different quantities from `V`, and converting
 between them is refused.
 
@@ -143,6 +158,9 @@ What names mean depends on where the expression is:
 | `summary` | Plan variables as numbers; sweep variables and measurements as lists over the sweep; earlier summary values as numbers. |
 
 Using a list where a number belongs, such as `"vout * 1000"` in a summary, is reported by `validate`.
+So is an expression with no names in it whose result cannot be a number, such as `"1 / 0"`. An
+expression that goes wrong during a run is not a pass: in a limit it fails the unit, and in a setting
+or a wait it aborts the run.
 
 ## Readings and actions
 

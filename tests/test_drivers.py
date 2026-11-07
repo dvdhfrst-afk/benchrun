@@ -12,6 +12,7 @@ from benchrun.drivers.siggen import SignalGenerator
 from benchrun.errors import (
     BadResponse,
     ConnectionLost,
+    InstrumentFault,
     ReadingOverload,
     ResponseTimeout,
     ScpiErrorReported,
@@ -162,7 +163,7 @@ class ExactCommands(unittest.TestCase):
         dmm.measure_ac_voltage()
         self.assertEqual(
             link.commands,
-            ["CONF:VOLT:DC AUTO", "READ?", "CONF:CURR:DC 1", "READ?", "CONF:VOLT:AC AUTO", "READ?"],
+            ["CONF:VOLT:DC DEF", "READ?", "CONF:CURR:DC 1", "READ?", "CONF:VOLT:AC DEF", "READ?"],
         )
 
     def test_dmm_reset_forgets_configuration(self):
@@ -171,7 +172,7 @@ class ExactCommands(unittest.TestCase):
         dmm.measure_dc_voltage()
         dmm.reset()
         dmm.measure_dc_voltage()
-        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 2)
+        self.assertEqual(link.commands.count("CONF:VOLT:DC DEF"), 2)
 
     def test_dmm_failed_configuration_is_not_cached(self):
         link = FakeTransport(replies=["5.0"], errors=['-222,"Data out of range"'])
@@ -253,10 +254,21 @@ class ExactCommands(unittest.TestCase):
         )
 
     def test_safe_state_turns_sources_off(self):
-        for driver, command in ((PowerSupply, "OUTP OFF"), (ElectronicLoad, "INP OFF"), (SignalGenerator, "OUTP OFF")):
-            link = FakeTransport()
+        cases = (
+            (PowerSupply, ["OUTP OFF", "OUTP?"]),
+            (ElectronicLoad, ["INP OFF", "INP?"]),
+            (SignalGenerator, ["OUTP OFF", "OUTP?"]),
+        )
+        for driver, commands in cases:
+            link = FakeTransport(["0"])
             driver(link, "x").safe_state()
-            self.assertEqual(link.commands, [command])
+            self.assertEqual(link.commands, commands)
+
+    def test_safe_state_refuses_to_call_a_source_off_when_it_reads_on(self):
+        for driver in (PowerSupply, ElectronicLoad, SignalGenerator):
+            for reply in ("1", "ON"):
+                with self.assertRaises(InstrumentFault):
+                    driver(FakeTransport([reply]), "x").safe_state()
 
     def test_safe_state_is_nothing_for_passive_instruments(self):
         for driver in (Dmm, Oscilloscope, Instrument):
@@ -272,7 +284,7 @@ class RawCommandsAndRememberedSettings(unittest.TestCase):
         meter.measure_dc_voltage()
         meter.write("CONF:CURR:DC")
         meter.measure_dc_voltage()
-        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 2)
+        self.assertEqual(link.commands.count("CONF:VOLT:DC DEF"), 2)
 
     def test_multimeter_reconfigures_after_a_raw_query(self):
         link = FakeTransport(["5.0", "0.1", "5.0"])
@@ -280,14 +292,14 @@ class RawCommandsAndRememberedSettings(unittest.TestCase):
         meter.measure_dc_voltage()
         meter.query_number("MEAS:CURR:DC?")
         meter.measure_dc_voltage()
-        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 2)
+        self.assertEqual(link.commands.count("CONF:VOLT:DC DEF"), 2)
 
     def test_multimeter_still_skips_repeat_configuration(self):
         link = FakeTransport(["5.0", "5.0"])
         meter = Dmm(link)
         meter.measure_dc_voltage()
         meter.measure_dc_voltage()
-        self.assertEqual(link.commands.count("CONF:VOLT:DC AUTO"), 1)
+        self.assertEqual(link.commands.count("CONF:VOLT:DC DEF"), 1)
 
 
 class ConstantCurrentBit(unittest.TestCase):
@@ -308,7 +320,7 @@ class ConstantCurrentBit(unittest.TestCase):
 
 class Registry(unittest.TestCase):
     def test_registered_drivers(self):
-        self.assertEqual(set(DRIVERS), {"dmm", "psu", "eload", "scope", "siggen", "scpi"})
+        self.assertEqual(set(DRIVERS), {"dmm", "psu", "eload", "scope", "siggen", "scpi", "smu", "counter", "switch", "lcr", "psu_multi"})
 
     def test_every_reading_declares_a_unit_attribute(self):
         for driver in DRIVERS.values():

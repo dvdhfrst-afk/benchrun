@@ -13,11 +13,22 @@ import time
 from datetime import datetime, timezone
 from typing import IO, Optional, Tuple
 
-from benchrun.errors import ConnectionLost, PlanError, ResponseTimeout
+from benchrun.errors import CommandRefused, ConnectionLost, PlanError, ResponseTimeout
 
 DEFAULT_PORT = 5025
 DEFAULT_TIMEOUT_S = 5.0
 MAX_LINE_BYTES = 16 * 1024 * 1024
+
+
+def encode_command(text: str) -> bytes:
+    """One program message as bytes, or refuse it.
+
+    A line break would turn one message into two, and a character replaced on
+    the way out could turn a setting into a query, so neither is ever sent.
+    """
+    if any(ord(ch) < 32 or ord(ch) > 126 for ch in text):
+        raise CommandRefused(f"command {text!r} has a line break or a non-ASCII character, so it was not sent")
+    return text.encode("ascii") + b"\n"
 
 
 def parse_address(address: str) -> Tuple[str, int]:
@@ -79,6 +90,7 @@ class TcpTransport(Transport):
         self._buffer = bytearray()
 
     def open(self) -> None:
+        self.close()
         try:
             self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
         except OSError as exc:
@@ -100,10 +112,11 @@ class TcpTransport(Transport):
         return self._sock
 
     def write_line(self, text: str) -> None:
+        message = encode_command(text)
         sock = self._require_socket()
         sock.settimeout(self.timeout_s)
         try:
-            sock.sendall(text.encode("ascii", "replace") + b"\n")
+            sock.sendall(message)
         except socket.timeout as exc:
             raise ResponseTimeout(f"timed out sending {text!r} to {self.description}") from exc
         except OSError as exc:
@@ -144,6 +157,8 @@ class TcpTransport(Transport):
                 if not chunk:
                     raise ConnectionLost(f"connection to {self.description} closed by the instrument")
                 discarded += chunk
+                if len(discarded) > MAX_LINE_BYTES:
+                    raise ConnectionLost(f"{self.description} keeps sending data nobody asked for")
         except OSError as exc:
             raise ConnectionLost(f"connection to {self.description} lost: {exc}") from exc
         return discarded.decode("ascii", "replace")
@@ -159,9 +174,13 @@ class LoggingTransport(Transport):
         self.description = inner.description
 
     def _log(self, direction: str, text: str) -> None:
+        """A full disk must not stop a run, or stop outputs being switched off."""
         stamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        self.stream.write(f"{stamp} {self.label} {direction} {text}\n")
-        self.stream.flush()
+        try:
+            self.stream.write(f"{stamp} {self.label} {direction} {text}\n")
+            self.stream.flush()
+        except (OSError, ValueError):
+            pass
 
     def open(self) -> None:
         self._log("--", f"open {self.inner.description}")

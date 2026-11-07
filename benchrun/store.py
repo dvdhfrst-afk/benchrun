@@ -1,4 +1,10 @@
-"""SQLite results database: runs, instruments, steps, measurements and queries."""
+"""SQLite results database: runs, instruments, steps, measurements and queries.
+
+The schema version lives in ``PRAGMA user_version``. A new database is built by
+running the first schema and then every upgrade, so the path an old database
+takes is the same path every test takes. An old database is copied first, and
+the upgrade happens in one transaction, so a failure leaves it as it was.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +13,12 @@ import math
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+LOCK_WAIT_S = 30.0  # Another process may be writing to the same database.
 
-_SCHEMA = """
+_FIRST_SCHEMA = """
 CREATE TABLE runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     serial TEXT NOT NULL,
@@ -73,6 +80,15 @@ CREATE TABLE measurements (
 CREATE INDEX measurements_run ON measurements (run_id);
 """
 
+# What each schema version needs in order to become the next one.
+_UPGRADES: Dict[int, Tuple[str, ...]] = {
+    1: (
+        "ALTER TABLE runs ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE runs ADD COLUMN selected_steps TEXT",
+        "CREATE INDEX runs_started ON runs (started_at)",
+    ),
+}
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
@@ -84,24 +100,85 @@ class Store:
 
     def __init__(self, path: Union[str, Path]):
         self.path = str(path)
+        self.upgrade_note: Optional[str] = None  # Set when an old database was upgraded.
         try:
-            self.conn = sqlite3.connect(self.path)
-        except sqlite3.Error as exc:
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            self.conn = sqlite3.connect(self.path, timeout=LOCK_WAIT_S)
+        except (OSError, sqlite3.Error) as exc:
             raise sqlite3.OperationalError(f"cannot open results database {self.path}: {exc}") from exc
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self._migrate()
+        try:
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            self._migrate()
+        except sqlite3.Error as exc:
+            self.conn.close()
+            if str(exc).startswith("results database"):
+                raise
+            raise sqlite3.DatabaseError(f"results database {self.path} cannot be used: {exc}") from exc
+
+    def _version(self) -> int:
+        return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+
+    def _has_tables(self) -> bool:
+        return self.conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] > 0
 
     def _migrate(self) -> None:
-        version = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if version == 0:
-            with self.conn:
-                self.conn.executescript(_SCHEMA)
-                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        elif version != SCHEMA_VERSION:
+        version = self._version()
+        if version == SCHEMA_VERSION:
+            return
+        if version > SCHEMA_VERSION:
             raise sqlite3.DatabaseError(
-                f"results database {self.path} has schema {version}; this benchrun expects {SCHEMA_VERSION}"
+                f"results database {self.path} has schema {version}, newer than the {SCHEMA_VERSION} "
+                "this benchrun knows. Upgrade benchrun; the file has not been changed."
             )
+        if version == 0 and self._has_tables():
+            raise sqlite3.DatabaseError(
+                f"results database {self.path} is a SQLite file that benchrun did not create. "
+                "Choose another file with --db; this one has not been changed."
+            )
+        backup = self._back_up(version) if version else None
+        self._upgrade()
+        if backup:
+            self.upgrade_note = f"Upgraded {self.path} from schema {version} to {SCHEMA_VERSION}. Old copy: {backup}"
+
+    def _back_up(self, version: int) -> str:
+        """A full copy of the database, under a name no earlier copy holds."""
+        candidate = f"{self.path}.schema{version}.bak"
+        serial = 1
+        while Path(candidate).exists():
+            serial += 1
+            candidate = f"{self.path}.schema{version}.{serial}.bak"
+        target = sqlite3.connect(candidate)
+        try:
+            with target:
+                self.conn.backup(target)
+        finally:
+            target.close()
+        return candidate
+
+    def _upgrade(self) -> None:
+        """Bring the schema up to date in one transaction. Two processes may race here."""
+        self.conn.isolation_level = None
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                current = self._version()
+                if current == 0:
+                    for statement in _FIRST_SCHEMA.split(";"):
+                        if statement.strip():
+                            self.conn.execute(statement)
+                    current = 1
+                while current < SCHEMA_VERSION:
+                    for statement in _UPGRADES[current]:
+                        self.conn.execute(statement)
+                    current += 1
+                self.conn.execute(f"PRAGMA user_version = {current}")
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+        finally:
+            self.conn.isolation_level = ""
 
     def close(self) -> None:
         self.conn.close()
@@ -124,11 +201,14 @@ class Store:
         variables: Mapping[str, float],
         operator: str,
         software_version: str,
+        note: str = "",
+        selected_steps: Optional[Sequence[str]] = None,
     ) -> int:
         with self.conn:
             cursor = self.conn.execute(
                 "INSERT INTO runs (serial, plan_name, plan_version, plan_hash, plan_source, variables,"
-                " operator, software_version, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+                " operator, software_version, note, selected_steps, status, started_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
                 (
                     serial,
                     plan_name,
@@ -138,6 +218,8 @@ class Store:
                     json.dumps(dict(variables), sort_keys=True),
                     operator,
                     software_version,
+                    note,
+                    None if selected_steps is None else json.dumps(list(selected_steps)),
                     now_iso(),
                 ),
             )
@@ -179,6 +261,13 @@ class Store:
         with self.conn:
             self.conn.execute(
                 "UPDATE steps SET status = 'skipped', message = ? WHERE run_id = ? AND status = 'pending'",
+                (message, run_id),
+            )
+
+    def abort_running_steps(self, run_id: int, message: str) -> None:
+        with self.conn:
+            self.conn.execute(
+                "UPDATE steps SET status = 'error', message = ? WHERE run_id = ? AND status = 'running'",
                 (message, run_id),
             )
 
@@ -236,43 +325,63 @@ class Store:
         plan: Optional[str] = None,
         status: Optional[str] = None,
         limit: Optional[int] = None,
+        instrument: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Runs, newest first, with pass, fail and total measurement counts."""
+        """Runs, newest first, with pass, fail and total measurement counts.
+
+        ``instrument`` is found anywhere in a recorded ``*IDN?`` response, which
+        answers the question of which units a given instrument tested.
+        ``since`` and ``until`` are UTC times in the form the database stores.
+        """
         clauses = []
         params: List[Any] = []
         if serial is not None:
-            clauses.append("r.serial = ?")
+            clauses.append("serial = ?")
             params.append(serial)
         if plan is not None:
-            clauses.append("r.plan_name = ?")
+            clauses.append("plan_name = ?")
             params.append(plan)
         if status is not None:
-            clauses.append("r.status = ?")
+            clauses.append("status = ?")
             params.append(status)
+        if instrument is not None:
+            clauses.append(
+                "id IN (SELECT run_id FROM run_instruments WHERE instr(lower(COALESCE(idn, '')), lower(?)) > 0)"
+            )
+            params.append(instrument)
+        if since is not None:
+            clauses.append("started_at >= ?")
+            params.append(since)
+        if until is not None:
+            clauses.append("started_at <= ?")
+            params.append(until)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         tail = ""
         if limit is not None:
             tail = "LIMIT ?"
             params.append(limit)
+        # Choosing the runs first keeps a short listing fast on a large database.
         rows = self.conn.execute(
-            "SELECT r.id, r.serial, r.plan_name, r.plan_version, r.plan_hash, r.operator, r.status, r.reason,"
-            " r.started_at, r.finished_at,"
+            "SELECT r.id, r.serial, r.plan_name, r.plan_version, r.plan_hash, r.operator, r.note, r.selected_steps,"
+            " r.status, r.reason, r.started_at, r.finished_at,"
             " COUNT(m.id) AS measurements,"
             " COALESCE(SUM(m.verdict = 'pass'), 0) AS passed,"
             " COALESCE(SUM(m.verdict = 'fail'), 0) AS failed,"
             " COALESCE(SUM(m.verdict = 'error'), 0) AS errors"
-            " FROM runs r LEFT JOIN measurements m ON m.run_id = r.id "
-            f"{where} GROUP BY r.id ORDER BY r.id DESC {tail}",
+            f" FROM (SELECT * FROM runs {where} ORDER BY id DESC {tail}) r"
+            " LEFT JOIN measurements m ON m.run_id = r.id GROUP BY r.id ORDER BY r.id DESC",
             params,
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [_decode_selection(dict(row)) for row in rows]
 
     def run_detail(self, run_id: int) -> Optional[Dict[str, Any]]:
         """Everything recorded about one run, ready for a report."""
         row = self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             return None
-        detail = dict(row)
+        detail = _decode_selection(dict(row))
         detail["variables"] = json.loads(detail["variables"])
         detail["instruments"] = [
             dict(r)
@@ -295,14 +404,19 @@ class Store:
         """Run counts and first-pass yield for a plan.
 
         First-pass yield counts each serial once: its first run that reached a
-        verdict. Aborted runs say nothing about the unit, so they are excluded.
+        verdict. Aborted runs say nothing about the unit, so they are excluded,
+        and so are runs of only some of the plan's steps, which are counted apart.
         """
         rows = self.conn.execute(
-            "SELECT id, serial, status FROM runs WHERE plan_name = ? ORDER BY id", (plan,)
+            "SELECT id, serial, status, selected_steps FROM runs WHERE plan_name = ? ORDER BY id", (plan,)
         ).fetchall()
         counts = {"pass": 0, "fail": 0, "aborted": 0, "running": 0}
+        partial = 0
         first_verdict: Dict[str, str] = {}
         for row in rows:
+            if row["selected_steps"] is not None:
+                partial += 1
+                continue
             counts[row["status"]] = counts.get(row["status"], 0) + 1
             if row["status"] in ("pass", "fail") and row["serial"] not in first_verdict:
                 first_verdict[row["serial"]] = row["status"]
@@ -312,6 +426,7 @@ class Store:
             "plan": plan,
             "runs": len(rows),
             "counts": counts,
+            "partial_runs": partial,
             "serials": len({row["serial"] for row in rows}),
             "units_with_verdict": units,
             "first_pass_units": first_pass,
@@ -324,12 +439,12 @@ class Store:
         Grouped by step, measurement and sweep point, because a value measured
         at 7 V and at 20 V are different populations, and by units and limits,
         because capability only means something against one set of limits.
-        Aborted runs are excluded.
+        Aborted runs and runs of only some steps are excluded.
         """
         sql = (
             "SELECT s.name AS step, m.name, m.point, m.units, m.value, m.low, m.high, m.verdict"
             " FROM measurements m JOIN steps s ON s.id = m.step_id JOIN runs r ON r.id = m.run_id"
-            " WHERE r.plan_name = ? AND r.status IN ('pass', 'fail')"
+            " WHERE r.plan_name = ? AND r.status IN ('pass', 'fail') AND r.selected_steps IS NULL"
         )
         params: List[Any] = [plan]
         if serial is not None:
@@ -356,6 +471,12 @@ class Store:
             if row["verdict"] == "fail":
                 group["fails"] += 1
         return [_finish_stats(group) for group in groups.values()]
+
+
+def _decode_selection(row: Dict[str, Any]) -> Dict[str, Any]:
+    if row.get("selected_steps") is not None:
+        row["selected_steps"] = json.loads(row["selected_steps"])
+    return row
 
 
 def _finish_stats(group: Dict[str, Any]) -> Dict[str, Any]:

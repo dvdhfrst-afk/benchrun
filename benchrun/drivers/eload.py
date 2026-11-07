@@ -8,10 +8,13 @@ from benchrun.drivers.base import Instrument, action, reading
 class ElectronicLoad(Instrument):
     """A constant-current electronic load."""
 
+    HAS_OUTPUT = True
+
     COMMANDS = {
         **Instrument.COMMANDS,
         "set_current": "CURR {amps:.12g}",
         "input": "INP {state}",
+        "input_state": "INP?",
         "measure_voltage": "MEAS:VOLT?",
         "measure_current": "MEAS:CURR?",
     }
@@ -38,3 +41,4 @@ class ElectronicLoad(Instrument):
 
     def safe_state(self) -> None:
         self.input_off()
+        self._confirm_off("input_state")

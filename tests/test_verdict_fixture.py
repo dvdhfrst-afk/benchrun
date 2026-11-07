@@ -85,7 +85,7 @@ class VerdictFixtureTest(unittest.TestCase):
                 conn.close()
 
     def test_failing_cases_really_exist(self):
-        """Guards the fixture itself: it must hold both a pass and specific fails."""
+        """Checks the fixture itself: it must hold both a pass and specific fails."""
         by_dut = {c["dut"]: c for c in EXPECTED["cases"] if not c["faults"]}
         self.assertEqual(by_dut["good"]["status"], "pass")
         failed = [m["name"] for m in by_dut["poor-line"]["measurements"] if m["verdict"] == "fail"]

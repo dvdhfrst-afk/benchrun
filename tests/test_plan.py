@@ -87,13 +87,13 @@ class Problems(unittest.TestCase):
             def spoil(d, bad=bad):
                 d["setup"][0] = {"do": "supply.set_current_limit", "amps": bad}
 
-            self.assertProblem(self.change(spoil), "must be a number")
+            self.assertProblem(self.change(spoil), "must be a finite number")
 
     def test_reading_argument_of_the_wrong_type(self):
         def spoil(d):
             d["steps"][1]["measure"][0]["args"] = {"range_v": "ten"}
 
-        self.assertProblem(self.change(spoil), "must be a number")
+        self.assertProblem(self.change(spoil), "must be a finite number")
 
     def test_text_arguments_stay_text(self):
         def good(d):
@@ -105,7 +105,7 @@ class Problems(unittest.TestCase):
         def spoil(d):
             d["setup"][0] = {"nothing": 1}
 
-        self.assertProblem(self.change(spoil), "expected 'do' or 'wait_s'")
+        self.assertProblem(self.change(spoil), "expected 'do', 'wait_s' or 'prompt'")
 
     def test_negative_wait(self):
         def spoil(d):

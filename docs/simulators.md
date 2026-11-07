@@ -1,7 +1,7 @@
 # Simulators
 
-`python -m benchrun sim` serves five instruments on 127.0.0.1, wired to one simulated linear
-regulator. The model is simple enough to work out by hand on purpose; that is how
+`python -m benchrun sim` serves ten instruments on 127.0.0.1, most of them wired to one simulated
+linear regulator. The model is simple enough to work out by hand on purpose; that is how
 `tests/fixtures/verdict_expected.json` was produced.
 
 ## Wiring
@@ -10,7 +10,15 @@ regulator. The model is simple enough to work out by hand on purpose; that is ho
 supply (+ generator ripple) --> VIN  [regulator]  VOUT --> electronic load
                                                        --> multimeter
 oscilloscope CH1 = VOUT, CH2 = VIN
+frequency counter CH1 = generator output
+switch channel 101 = VOUT, channel 102 = VIN, both to the multimeter
+source measure unit and multimeter resistance = a fixture resistor
+LCR meter = the output capacitor
+multi-output supply outputs = one resistor each, not connected to VIN
 ```
+
+The multimeter reads VOUT directly until a plan uses the switch. After that it reads whatever the
+switch connects, and 0 V with nothing closed.
 
 | Instrument | Default port | Identity |
 |---|---|---|
@@ -19,6 +27,11 @@ oscilloscope CH1 = VOUT, CH2 = VIN
 | Electronic load (`eload`) | 5027 | `benchrun,SIM-ELOAD,SIM0003,1.0` |
 | Oscilloscope (`scope`) | 5028 | `benchrun,SIM-SCOPE,SIM0005,1.0` |
 | Signal generator (`siggen`) | 5029 | `benchrun,SIM-SIGGEN,SIM0004,1.0` |
+| Source measure unit (`smu`) | 5030 | `benchrun,SIM-SMU,SIM0006,1.0` |
+| Frequency counter (`counter`) | 5031 | `benchrun,SIM-COUNTER,SIM0007,1.0` |
+| Switch (`switch`) | 5032 | `benchrun,SIM-SWITCH,SIM0008,1.0` |
+| LCR meter (`lcr`) | 5033 | `benchrun,SIM-LCR,SIM0009,1.0` |
+| Multi-output supply (`psu_multi`) | 5034 | `benchrun,SIM-PSU3,SIM0010,1.0` |
 
 ## Regulator equations
 
@@ -43,6 +56,11 @@ iin       = i + iq
 | `ilimit` | 1.5 A | Output current limit |
 | `psrr_db` | 70 dB | Power supply rejection ratio at low frequency |
 | `psrr_corner_hz` | 1000 Hz | Rejection falls 20 dB per decade above this |
+| `sense_ohms` | 10 kOhm | The fixture resistor |
+| `lead_ohms` | 0.2 Ohm | Test leads, seen only by a two-wire reading |
+| `cout_f` | 10 uF | The output capacitor |
+| `cout_d` | 0.02 | Its dissipation factor |
+| `rail_ohms` | 100 Ohm | What each output of the multi-output supply feeds |
 
 Special cases:
 
@@ -97,6 +115,15 @@ sequence on a freshly started bench gives identical readings. `--noise` scales i
   as overload.
 - **Supply limits:** 0 to 30 V, 0 to 5 A. **Load limit:** 0 to 5 A. Beyond these, the setting is
   rejected with error -222 and the old value stays.
+- **Source measure unit:** 210 V and 1.05 A at most. Above its limit the output is held at the limit
+  and `PROT:TRIP?` reads 1. `READ?` with the output off is an error.
+- **Counter:** channel 1 reads the generator when its output is on. Any other case has nothing to
+  count and reads as overload.
+- **Switch:** channels 101 to 120. Others are rejected with error -222.
+- **LCR meter:** `FETC?` before a trigger answers status -1. It models a capacitor, so `CPD`, `CSD`,
+  `CPQ`, `CSQ`, `LPD`, `LSD`, `RX` and `ZTD` work, and other functions are rejected.
+- **Multi-output supply:** outputs 1 to 3, 30 V and 5 A at most, in constant current when the resistor
+  would draw more than the limit.
 - **Errors:** queue of 20, oldest first, read with `SYST:ERR?`. A query with a bad header gets no
   response and queues an error, so a controller finds out by timing out and reading the queue.
 
@@ -108,11 +135,17 @@ Long forms are shown. Shortened forms and optional nodes follow the usual rules:
 | Instrument | Commands |
 |---|---|
 | All | `*IDN?` `*RST` `*CLS` `*OPC` `*OPC?` `*WAI` `*TST?` `*ESR?` `*ESE` `*ESE?` `*SRE` `*SRE?` `*STB?` `SYSTem:ERRor[:NEXT]?` `SYSTem:VERSion?` |
-| Multimeter | `CONFigure[:VOLTage][:DC]` `CONFigure:CURRent[:DC]` `CONFigure:VOLTage:AC` `CONFigure?` `MEASure[:VOLTage][:DC]?` `MEASure:CURRent[:DC]?` `MEASure:VOLTage:AC?` `READ?` `[SENSe]:VOLTage[:DC]:NPLCycles` `[SENSe]:CURRent[:DC]:NPLCycles` `[SENSe]:VOLTage[:DC]:RANGe[:UPPer]` `[SENSe]:CURRent[:DC]:RANGe[:UPPer]` |
+| Multimeter | `CONFigure[:VOLTage][:DC]` `CONFigure:CURRent[:DC]` `CONFigure:VOLTage:AC` `CONFigure:CURRent:AC` `CONFigure:RESistance` `CONFigure:FRESistance` `CONFigure:FREQuency` `CONFigure?` `MEASure[:VOLTage][:DC]?` `MEASure:CURRent[:DC]?` `MEASure:VOLTage:AC?` `READ?` `[SENSe]:VOLTage[:DC]:NPLCycles` `[SENSe]:CURRent[:DC]:NPLCycles` `[SENSe]:VOLTage[:DC]:RANGe[:UPPer]` `[SENSe]:CURRent[:DC]:RANGe[:UPPer]` |
 | Supply | `[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]` `[SOURce]:CURRent[:LEVel][:IMMediate][:AMPLitude]` `OUTPut[:STATe]` `MEASure[:SCALar]:VOLTage[:DC]?` `MEASure[:SCALar]:CURRent[:DC]?` `STATus:OPERation:CONDition?` (bit 8 constant voltage, bit 10 constant current) |
 | Load | `[SOURce]:CURRent[:LEVel][:IMMediate][:AMPLitude]` `INPut[:STATe]` `MEASure[:SCALar]:VOLTage[:DC]?` `MEASure[:SCALar]:CURRent[:DC]?` |
 | Generator | `[SOURce]:FUNCtion[:SHAPe]` (`SINusoid`, `SQUare`, `TRIangle`) `[SOURce]:FREQuency[:CW]` `[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]` `[SOURce]:VOLTage[:LEVel][:IMMediate]:OFFSet` `OUTPut[:STATe]` |
 | Oscilloscope | `CHANnel<n>:SCALe` `CHANnel<n>:OFFSet` `CHANnel<n>:COUPling` `TIMebase[:MAIN]:SCALe` `MEASure:VPP?` `MEASure:VRMS?` `MEASure:VAVerage?` `MEASure:FREQuency?` `WAVeform:SOURce` `WAVeform:XINCrement?` `WAVeform:DATA?` |
+
+| Source measure unit | `[SOURce]:FUNCtion[:MODE]` `[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]` `[SOURce]:CURRent[:LEVel][:IMMediate][:AMPLitude]` `[SENSe]:CURRent[:DC]:PROTection[:LEVel]` `[SENSe]:VOLTage[:DC]:PROTection[:LEVel]` `[SENSe]:CURRent[:DC]:PROTection:TRIPped?` `[SENSe]:VOLTage[:DC]:PROTection:TRIPped?` `[SENSe]:FUNCtion[:ON]` `FORMat:ELEMents` `OUTPut[:STATe]` `READ?` |
+| Counter | `CONFigure:FREQuency` `[SENSe]:FREQuency:GATE:TIME` `READ?` |
+| Switch | `ROUTe:CLOSe` `ROUTe:CLOSe?` `ROUTe:CLOSe:EXCLusive` `ROUTe:OPEN` with channel lists such as `(@101)`, `(@101,105)` and `(@101:120)` |
+| LCR meter | `FUNCtion:IMPedance[:TYPE]` `FREQuency[:CW]` `VOLTage[:LEVel]` `TRIGger:SOURce` `INITiate[:IMMediate]` `TRIGger[:IMMediate]` `FETCh[:IMPedance][:FORMatted]?` |
+| Multi-output supply | `[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude] <value>,(@n)` `[SOURce]:CURRent[:LEVel][:IMMediate][:AMPLitude] <value>,(@n)` `OUTPut[:STATe] <state>,(@n)` `OUTPut[:STATe]? (@n)` `MEASure[:SCALar]:VOLTage[:DC]? (@n)` `MEASure[:SCALar]:CURRent[:DC]? (@n)` `STATus:QUEStionable:INSTrument:ISUMmary<n>:CONDition?` |
 
 ## Fault injection
 
@@ -127,5 +160,5 @@ Long forms are shown. Shortened forms and optional nodes follow the usual rules:
 | `overload` | Answers 9.9E37. |
 
 A fault fires only if the plan reads that instrument often enough; otherwise the run is unaffected.
-The generator has no readings, so for `siggen` the count is of settings, and only `drop`, `hang` and
-`error` apply.
+The generator and the switch have no readings, so for `siggen` and `switch` the count is of settings,
+and only `drop`, `hang` and `error` apply.

@@ -1,0 +1,88 @@
+{
+  "name": "three-rails",
+  "version": "1.0",
+  "description": "Multi-output supply: bring up three rails and check each one's voltage and current.",
+  "vars": {
+    "rail_ohms": 100.0
+  },
+  "instruments": {
+    "psu3": {
+      "driver": "psu_multi",
+      "address": "127.0.0.1:5034"
+    }
+  },
+  "setup": [
+    {
+      "do": "psu3.set_current_limit",
+      "channel": 1,
+      "amps": 0.5
+    },
+    {
+      "do": "psu3.set_current_limit",
+      "channel": 2,
+      "amps": 0.5
+    },
+    {
+      "do": "psu3.set_current_limit",
+      "channel": 3,
+      "amps": 0.5
+    }
+  ],
+  "steps": [
+    {
+      "name": "rail",
+      "sweep": [
+        {
+          "var": "output",
+          "values": [
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "apply": [
+        {
+          "do": "psu3.set_voltage",
+          "channel": "=output",
+          "volts": "=output * 5"
+        },
+        {
+          "do": "psu3.output_on",
+          "channel": "=output"
+        }
+      ],
+      "settle_s": 0.01,
+      "measure": [
+        {
+          "name": "volts",
+          "read": "psu3.measure_voltage",
+          "args": {
+            "channel": "=output"
+          },
+          "units": "V",
+          "low": "=output * 5 - 0.05",
+          "high": "=output * 5 + 0.05"
+        },
+        {
+          "name": "amps",
+          "read": "psu3.measure_current",
+          "args": {
+            "channel": "=output"
+          },
+          "units": "A",
+          "low": "=output * 5 / rail_ohms - 0.01",
+          "high": "=output * 5 / rail_ohms + 0.01"
+        },
+        {
+          "name": "limited",
+          "read": "psu3.current_limited",
+          "args": {
+            "channel": "=output"
+          },
+          "high": 0
+        }
+      ]
+    }
+  ]
+}

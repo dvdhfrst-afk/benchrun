@@ -1,0 +1,64 @@
+{
+  "name": "fixture-with-operator",
+  "version": "1.0",
+  "description": "Stops for the operator to seat the unit, and checks resistance before applying power.",
+  "instruments": {
+    "supply": {
+      "driver": "psu",
+      "address": "127.0.0.1:5026"
+    },
+    "dmm": {
+      "driver": "dmm",
+      "address": "127.0.0.1:5025"
+    }
+  },
+  "setup": [
+    {
+      "prompt": "Seat the unit in the fixture and close the lid"
+    }
+  ],
+  "steps": [
+    {
+      "name": "no_short",
+      "measure": [
+        {
+          "name": "input_ohms",
+          "read": "dmm.measure_resistance",
+          "units": "Ohm",
+          "low": 1000.0
+        }
+      ]
+    },
+    {
+      "name": "powered",
+      "setup": [
+        {
+          "do": "supply.set_current_limit",
+          "amps": 0.5
+        },
+        {
+          "do": "supply.set_voltage",
+          "volts": 12.0
+        },
+        {
+          "do": "supply.output_on"
+        }
+      ],
+      "settle_s": 0.01,
+      "measure": [
+        {
+          "name": "vout",
+          "read": "dmm.measure_dc_voltage",
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1
+        }
+      ]
+    }
+  ],
+  "teardown": [
+    {
+      "do": "supply.output_off"
+    }
+  ]
+}

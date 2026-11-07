@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import List, Tuple
 
-from benchrun.drivers.base import Instrument, action, reading
+from benchrun.drivers.base import Instrument, action, reading, whole_number
 from benchrun.errors import BadResponse
 
 
@@ -29,7 +30,7 @@ class Oscilloscope(Instrument):
     @action
     def setup_channel(self, channel: int, volts_per_div: float, offset_v: float = 0.0, coupling: str = "DC") -> None:
         """Set vertical scale, offset and coupling (``"DC"`` or ``"AC"``)."""
-        channel = int(channel)
+        channel = whole_number(channel, "channel", self.name)
         self.command("channel_coupling", channel=channel, coupling=coupling)
         self.command("channel_scale", channel=channel, volts_per_div=volts_per_div)
         self.command("channel_offset", channel=channel, offset_v=offset_v)
@@ -40,19 +41,19 @@ class Oscilloscope(Instrument):
 
     @reading("Vpp")
     def measure_vpp(self, channel: int = 1) -> float:
-        return self.number("measure_vpp", channel=int(channel))
+        return self.number("measure_vpp", channel=whole_number(channel, "channel", self.name))
 
     @reading("Vrms")
     def measure_vrms(self, channel: int = 1) -> float:
-        return self.number("measure_vrms", channel=int(channel))
+        return self.number("measure_vrms", channel=whole_number(channel, "channel", self.name))
 
     @reading("V")
     def measure_vavg(self, channel: int = 1) -> float:
-        return self.number("measure_vavg", channel=int(channel))
+        return self.number("measure_vavg", channel=whole_number(channel, "channel", self.name))
 
     @reading("Hz")
     def measure_frequency(self, channel: int = 1) -> float:
-        return self.number("measure_frequency", channel=int(channel))
+        return self.number("measure_frequency", channel=whole_number(channel, "channel", self.name))
 
     def fetch_waveform(self, channel: int = 1) -> Tuple[float, List[float]]:
         """Return the sample interval in seconds and the samples in volts.
@@ -60,7 +61,7 @@ class Oscilloscope(Instrument):
         For scripts built on the driver. A plan's measurements are single
         numbers, so this is not exposed as a plan reading.
         """
-        self.command("waveform_source", channel=int(channel))
+        self.command("waveform_source", channel=whole_number(channel, "channel", self.name))
         increment = self.number("waveform_xincrement")
         query = self.commands["waveform_data"]
         response = self._ask(query)
@@ -68,5 +69,7 @@ class Oscilloscope(Instrument):
             samples = [float(piece) for piece in response.split(",")]
         except ValueError:
             raise BadResponse(f"non-numeric waveform data in response to {query!r}", self.name) from None
+        if not all(math.isfinite(sample) for sample in samples):
+            raise BadResponse(f"non-finite waveform data in response to {query!r}", self.name)
         self.check_errors(query)
         return increment, samples

@@ -82,11 +82,14 @@ class SimDmm(SimInstrument):
     CURRENT_RANGES = (0.01, 0.1, 1.0, 3.0, 10.0)
     NOISE_V = 30e-6
     NOISE_A = 20e-6
+    NOISE_OHM = 1e-3
+    RESISTANCE_RANGES = (100.0, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8)
 
     def reset(self) -> None:
         self.function = "VOLT"
         self.range_v: Optional[float] = None  # None means autorange.
         self.range_a: Optional[float] = None
+        self.range_ohm: Optional[float] = None
         self.nplc = 1.0
 
     def _noise_factor(self) -> float:
@@ -95,7 +98,7 @@ class SimDmm(SimInstrument):
     @staticmethod
     def _pick_range(text: str, ranges: Tuple[float, ...], unit: str) -> Optional[float]:
         if text.strip().upper() in ("AUTO", "DEF", "DEFAULT"):
-            return None
+            return None  # The default range is autorange.
         wanted = parse_number(text, unit, low=0.0, high=ranges[-1] * 1.2)
         for candidate in ranges:
             if wanted <= candidate * 1.2:
@@ -107,7 +110,7 @@ class SimDmm(SimInstrument):
         return chosen is not None and abs(value) > chosen * 1.2
 
     def _voltage(self) -> str:
-        vout = self.model.solve().vout
+        vout = self.model.meter_volts()
         value = vout + self.gauss(self.NOISE_V * self._noise_factor())
         return self.measured(OVERLOAD_VALUE if self._over_range(vout, self.range_v) else value)
 
@@ -137,6 +140,35 @@ class SimDmm(SimInstrument):
     def _conf_volt_ac(self, args: List[str], suffixes: List[int]) -> None:
         self.function = "VOLT:AC"
 
+    @scpi("CONFigure:CURRent:AC", nargs=(0, 2))
+    def _conf_curr_ac(self, args: List[str], suffixes: List[int]) -> None:
+        self.function = "CURR:AC"
+
+    @scpi("CONFigure:RESistance", nargs=(0, 2))
+    def _conf_res(self, args: List[str], suffixes: List[int]) -> None:
+        self.range_ohm = self._pick_range(args[0], self.RESISTANCE_RANGES, "OHM") if args else None
+        self.function = "RES"
+
+    @scpi("CONFigure:FRESistance", nargs=(0, 2))
+    def _conf_fres(self, args: List[str], suffixes: List[int]) -> None:
+        self.range_ohm = self._pick_range(args[0], self.RESISTANCE_RANGES, "OHM") if args else None
+        self.function = "FRES"
+
+    @scpi("CONFigure:FREQuency", nargs=(0, 2))
+    def _conf_freq(self, args: List[str], suffixes: List[int]) -> None:
+        self.function = "FREQ"
+
+    def _resistance(self, leads: float) -> str:
+        ohms = self.model.params.sense_ohms + leads
+        value = ohms + self.gauss(self.NOISE_OHM)
+        return self.measured(OVERLOAD_VALUE if self._over_range(ohms, self.range_ohm) else value)
+
+    def _frequency(self) -> str:
+        op = self.model.solve()
+        if op.ripple_out_vpp <= 0.0:
+            return self.measured(0.0)  # With no signal this kind of meter reads 0.
+        return self.measured(op.ripple_hz * (1.0 + self.gauss(1e-6)))
+
     @scpi("CONFigure", query=True)
     def _conf_query(self, args: List[str], suffixes: List[int]) -> str:
         return f'"{self.function}"'
@@ -162,6 +194,14 @@ class SimDmm(SimInstrument):
             return self._current()
         if self.function == "VOLT:AC":
             return self._ac_voltage()
+        if self.function == "CURR:AC":
+            return self.measured(abs(self.gauss(self.NOISE_A)))
+        if self.function == "RES":
+            return self._resistance(self.model.params.lead_ohms)
+        if self.function == "FRES":
+            return self._resistance(0.0)
+        if self.function == "FREQ":
+            return self._frequency()
         return self._voltage()
 
     @scpi("[SENSe]:VOLTage[:DC]:NPLCycles", nargs=(1, 1))
@@ -510,4 +550,341 @@ class SimScope(SimInstrument):
         return ",".join(f"{value:.6E}" for value in samples)
 
 
-INSTRUMENT_CLASSES = {cls.kind: cls for cls in (SimDmm, SimSupply, SimLoad, SimScope, SimGenerator)}
+def parse_channels(args: List[str]) -> List[int]:
+    """Read a channel list such as ``(@101)``, ``(@101:103)`` or ``(@101,105)``."""
+    text = ",".join(args).strip()
+    if not (text.startswith("(@") and text.endswith(")")):
+        raise ScpiError(-104, f"Data type error; expected a channel list, got {text}")
+    channels: List[int] = []
+    for piece in text[2:-1].split(","):
+        first, _, last = piece.strip().partition(":")
+        if not first.isdigit() or (last and not last.isdigit()):
+            raise ScpiError(-170, f"Expression error; {piece.strip()}")
+        channels.extend(range(int(first), int(last or first) + 1))
+    return channels
+
+
+class SimSmu(SimInstrument):
+    """Source measure unit across the fixture resistor. Its limit holds back the output."""
+
+    kind = "smu"
+    idn = "benchrun,SIM-SMU,SIM0006,1.0"
+    MAX_V = 210.0
+    MAX_A = 1.05
+    NOISE_V = 50e-6
+    NOISE_A = 5e-9
+
+    def reset(self) -> None:
+        self.source = "VOLT"
+        self.level_v = 0.0
+        self.level_a = 0.0
+        self.limit_a = 0.1
+        self.limit_v = 20.0
+        self.output = False
+        self.sense = "CURR"
+        self.elements = "CURR"
+
+    def _solved(self) -> Tuple[float, float, bool]:
+        """Volts across the resistor, amps through it, and whether a limit is holding it back."""
+        if not self.output:
+            return 0.0, 0.0, False
+        ohms = self.model.params.sense_ohms
+        if self.source == "VOLT":
+            amps = self.level_v / ohms
+            if abs(amps) > self.limit_a:
+                amps = math.copysign(self.limit_a, amps)
+                return amps * ohms, amps, True
+            return self.level_v, amps, False
+        volts = self.level_a * ohms
+        if abs(volts) > self.limit_v:
+            volts = math.copysign(self.limit_v, volts)
+            return volts, volts / ohms, True
+        return volts, self.level_a, False
+
+    @scpi("[SOURce]:FUNCtion[:MODE]", nargs=(1, 1))
+    def _set_source(self, args: List[str], suffixes: List[int]) -> None:
+        self.source = parse_choice(args[0], ("VOLTage", "CURRent"))
+
+    @scpi("[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]", nargs=(1, 1))
+    def _set_volts(self, args: List[str], suffixes: List[int]) -> None:
+        self.level_v = parse_number(args[0], "V", low=-self.MAX_V, high=self.MAX_V)
+
+    @scpi("[SOURce]:CURRent[:LEVel][:IMMediate][:AMPLitude]", nargs=(1, 1))
+    def _set_amps(self, args: List[str], suffixes: List[int]) -> None:
+        self.level_a = parse_number(args[0], "A", low=-self.MAX_A, high=self.MAX_A)
+
+    @scpi("[SENSe]:CURRent[:DC]:PROTection[:LEVel]", nargs=(1, 1))
+    def _set_limit_a(self, args: List[str], suffixes: List[int]) -> None:
+        self.limit_a = parse_number(args[0], "A", low=1e-9, high=self.MAX_A)
+
+    @scpi("[SENSe]:VOLTage[:DC]:PROTection[:LEVel]", nargs=(1, 1))
+    def _set_limit_v(self, args: List[str], suffixes: List[int]) -> None:
+        self.limit_v = parse_number(args[0], "V", low=1e-3, high=self.MAX_V)
+
+    @scpi("[SENSe]:CURRent[:DC]:PROTection:TRIPped", query=True)
+    def _tripped_a(self, args: List[str], suffixes: List[int]) -> str:
+        return "1" if self.source == "VOLT" and self._solved()[2] else "0"
+
+    @scpi("[SENSe]:VOLTage[:DC]:PROTection:TRIPped", query=True)
+    def _tripped_v(self, args: List[str], suffixes: List[int]) -> str:
+        return "1" if self.source == "CURR" and self._solved()[2] else "0"
+
+    @scpi("[SENSe]:FUNCtion[:ON]", nargs=(1, 1))
+    def _set_sense(self, args: List[str], suffixes: List[int]) -> None:
+        self.sense = parse_choice(args[0].strip("\"'"), ("VOLTage", "CURRent"))
+
+    @scpi("FORMat:ELEMents", nargs=(1, 1))
+    def _set_elements(self, args: List[str], suffixes: List[int]) -> None:
+        self.elements = parse_choice(args[0], ("VOLTage", "CURRent"))
+
+    @scpi("OUTPut[:STATe]", nargs=(1, 1))
+    def _set_output(self, args: List[str], suffixes: List[int]) -> None:
+        self.output = parse_bool(args[0])
+
+    @scpi("OUTPut[:STATe]", query=True)
+    def _get_output(self, args: List[str], suffixes: List[int]) -> str:
+        return "1" if self.output else "0"
+
+    @scpi("READ", query=True)
+    def _read(self, args: List[str], suffixes: List[int]) -> Optional[str]:
+        if not self.output:
+            raise ScpiError(-221, "Settings conflict; the output is off")
+        volts, amps, _ = self._solved()
+        if self.elements == "VOLT":
+            return self.measured(volts + self.gauss(self.NOISE_V))
+        return self.measured(amps + self.gauss(self.NOISE_A))
+
+
+class SimCounter(SimInstrument):
+    """Frequency counter. Channel 1 is the generator's output; anything else has no signal."""
+
+    kind = "counter"
+    idn = "benchrun,SIM-COUNTER,SIM0007,1.0"
+
+    def reset(self) -> None:
+        self.channel = 1
+        self.gate_s = 0.1
+
+    @scpi("CONFigure:FREQuency", nargs=(0, 3))
+    def _configure(self, args: List[str], suffixes: List[int]) -> None:
+        values = list(args)
+        channel = 1
+        if values and values[-1].startswith("(@"):
+            channels = parse_channels([values.pop()])
+            if len(channels) != 1 or channels[0] not in (1, 2, 3):
+                raise ScpiError(-221, "Settings conflict; one channel from 1 to 3 is needed")
+            channel = channels[0]
+        if values:
+            parse_number(values[0], "HZ", low=0.1, high=6e9, default=10e6)
+        if len(values) > 1:
+            parse_number(values[1], "HZ", low=1e-9, high=1e9, default=1.0)
+        self.channel = channel
+        self.gate_s = 0.1
+
+    @scpi("[SENSe]:FREQuency:GATE:TIME", nargs=(1, 1))
+    def _set_gate(self, args: List[str], suffixes: List[int]) -> None:
+        self.gate_s = parse_number(args[0], "S", low=1e-4, high=1000.0, default=0.1)
+
+    @scpi("[SENSe]:FREQuency:GATE:TIME", query=True)
+    def _get_gate(self, args: List[str], suffixes: List[int]) -> str:
+        return format_real(self.gate_s)
+
+    @scpi("READ", query=True)
+    def _read(self, args: List[str], suffixes: List[int]) -> str:
+        if self.channel != 1 or not self.model.gen_on:
+            return self.measured(OVERLOAD_VALUE)  # No signal to count.
+        relative = self.gauss(1e-8 / math.sqrt(self.gate_s))
+        return self.measured(self.model.gen_hz * (1.0 + relative))
+
+
+class SimSwitch(SimInstrument):
+    """A 20-channel multiplexer in slot 100. Channels 101 and 102 reach the multimeter."""
+
+    kind = "switch"
+    idn = "benchrun,SIM-SWITCH,SIM0008,1.0"
+    FIRST = 101
+    LAST = 120
+
+    def reset(self) -> None:
+        self.model.mux_closed.clear()
+        self.model.mux_in_use = False
+
+    def _checked(self, args: List[str]) -> List[int]:
+        channels = parse_channels(args)
+        for channel in channels:
+            if not self.FIRST <= channel <= self.LAST:
+                raise ScpiError(-222, f"Data out of range; channel {channel}")
+        return channels
+
+    @scpi("ROUTe:CLOSe", nargs=(1, 32))
+    def _close(self, args: List[str], suffixes: List[int]) -> None:
+        channels = self._checked(args)
+        self.measured(0.0)
+        self.model.mux_in_use = True
+        self.model.mux_closed.update(channels)
+
+    @scpi("ROUTe:CLOSe:EXCLusive", nargs=(1, 32))
+    def _close_only(self, args: List[str], suffixes: List[int]) -> None:
+        channels = self._checked(args)
+        self.measured(0.0)
+        self.model.mux_in_use = True
+        self.model.mux_closed.clear()
+        self.model.mux_closed.update(channels)
+
+    @scpi("ROUTe:OPEN", nargs=(1, 32))
+    def _open(self, args: List[str], suffixes: List[int]) -> None:
+        self.model.mux_closed.difference_update(self._checked(args))
+
+    @scpi("ROUTe:CLOSe", query=True, nargs=(1, 32))
+    def _is_closed(self, args: List[str], suffixes: List[int]) -> str:
+        return ",".join("1" if channel in self.model.mux_closed else "0" for channel in self._checked(args))
+
+
+class SimLcr(SimInstrument):
+    """LCR meter across the output capacitor, with a three-field ``FETCh?`` reply."""
+
+    kind = "lcr"
+    idn = "benchrun,SIM-LCR,SIM0009,1.0"
+    NOISE_RELATIVE = 2e-5
+    FUNCTIONS = ("CPD", "CSD", "CPQ", "CSQ", "LPD", "LSD", "RX", "ZTD")
+
+    def reset(self) -> None:
+        self.function = "CPD"
+        self.hertz = 1000.0
+        self.volts = 1.0
+        self.source = "INT"
+        self.armed = False
+        self.triggered = False
+
+    def _values(self) -> Tuple[float, float]:
+        params = self.model.params
+        omega = 2.0 * math.pi * self.hertz
+        cap = params.cout_f * (1.0 + self.gauss(self.NOISE_RELATIVE))
+        dissipation = params.cout_d * (1.0 + self.gauss(self.NOISE_RELATIVE))
+        reactance = -1.0 / (omega * cap)
+        resistance = dissipation * abs(reactance)
+        if self.function in ("CPD", "CSD"):
+            return cap, dissipation
+        if self.function in ("CPQ", "CSQ"):
+            return cap, 1.0 / dissipation
+        if self.function in ("LPD", "LSD"):
+            return -1.0 / (omega * omega * cap), dissipation
+        if self.function == "RX":
+            return resistance, reactance
+        return math.hypot(resistance, reactance), math.degrees(math.atan2(reactance, resistance))
+
+    @scpi("FUNCtion:IMPedance[:TYPE]", nargs=(1, 1))
+    def _set_function(self, args: List[str], suffixes: List[int]) -> None:
+        word = args[0].strip().upper()
+        if word not in self.FUNCTIONS:
+            raise ScpiError(-224, f"Illegal parameter value; {word}")
+        self.function = word
+
+    @scpi("FREQuency[:CW]", nargs=(1, 1))
+    def _set_frequency(self, args: List[str], suffixes: List[int]) -> None:
+        self.hertz = parse_number(args[0], "HZ", low=20.0, high=2e6, default=1000.0)
+
+    @scpi("VOLTage[:LEVel]", nargs=(1, 1))
+    def _set_level(self, args: List[str], suffixes: List[int]) -> None:
+        self.volts = parse_number(args[0], "V", low=0.0, high=20.0, default=1.0)
+
+    @scpi("TRIGger:SOURce", nargs=(1, 1))
+    def _set_source(self, args: List[str], suffixes: List[int]) -> None:
+        self.source = parse_choice(args[0], ("INTernal", "HOLD", "EXTernal", "BUS"))
+
+    @scpi("INITiate[:IMMediate]")
+    def _initiate(self, args: List[str], suffixes: List[int]) -> None:
+        self.armed = True
+
+    @scpi("TRIGger[:IMMediate]")
+    def _trigger(self, args: List[str], suffixes: List[int]) -> None:
+        if not self.armed:
+            raise ScpiError(-211, "Trigger ignored")
+        self.triggered = True
+
+    @scpi("FETCh[:IMPedance][:FORMatted]", query=True)
+    def _fetch(self, args: List[str], suffixes: List[int]) -> str:
+        if not self.triggered:
+            return "+0.00000E+00,+0.00000E+00,-1"
+        self.triggered = False
+        self.armed = False
+        first, second = self._values()
+        return f"{self.measured(first)},{format_real(second)},+0"
+
+
+class SimMultiSupply(SimInstrument):
+    """A three-output supply, each output feeding its own resistor. Separate from VIN."""
+
+    kind = "psu_multi"
+    idn = "benchrun,SIM-PSU3,SIM0010,1.0"
+    OUTPUTS = (1, 2, 3)
+    MAX_V = 30.0
+    MAX_A = 5.0
+    NOISE_V = 500e-6
+    NOISE_A = 50e-6
+
+    def reset(self) -> None:
+        self.volts = {n: 0.0 for n in self.OUTPUTS}
+        self.amps = {n: 1.0 for n in self.OUTPUTS}
+        self.on = {n: False for n in self.OUTPUTS}
+
+    def _outputs(self, args: List[str]) -> List[int]:
+        channels = parse_channels(args)
+        for channel in channels:
+            if channel not in self.OUTPUTS:
+                raise ScpiError(-222, f"Data out of range; output {channel}")
+        return channels
+
+    def _solved(self, output: int) -> Tuple[float, float, int]:
+        """Volts, amps and the mode: 0 off, 1 constant current, 2 constant voltage."""
+        if not self.on[output]:
+            return 0.0, 0.0, 0
+        ohms = self.model.params.rail_ohms
+        amps = self.volts[output] / ohms
+        if amps > self.amps[output]:
+            return self.amps[output] * ohms, self.amps[output], 1
+        return self.volts[output], amps, 2
+
+    @scpi("[SOURce]:VOLTage[:LEVel][:IMMediate][:AMPLitude]", nargs=(2, 2))
+    def _set_volts(self, args: List[str], suffixes: List[int]) -> None:
+        value = parse_number(args[0], "V", low=0.0, high=self.MAX_V)
+        for output in self._outputs(args[1:]):
+            self.volts[output] = value
+
+    @scpi("[SOURce]:CURRent[:LEVel][:IMMediate][:AMPLitude]", nargs=(2, 2))
+    def _set_amps(self, args: List[str], suffixes: List[int]) -> None:
+        value = parse_number(args[0], "A", low=0.0, high=self.MAX_A)
+        for output in self._outputs(args[1:]):
+            self.amps[output] = value
+
+    @scpi("OUTPut[:STATe]", nargs=(2, 2))
+    def _set_output(self, args: List[str], suffixes: List[int]) -> None:
+        state = parse_bool(args[0])
+        for output in self._outputs(args[1:]):
+            self.on[output] = state
+
+    @scpi("OUTPut[:STATe]", query=True, nargs=(1, 1))
+    def _get_output(self, args: List[str], suffixes: List[int]) -> str:
+        return ",".join("1" if self.on[output] else "0" for output in self._outputs(args))
+
+    @scpi("MEASure[:SCALar]:VOLTage[:DC]", query=True, nargs=(1, 1))
+    def _meas_volts(self, args: List[str], suffixes: List[int]) -> str:
+        output = self._outputs(args)[0]
+        return self.measured(self._solved(output)[0] + self.gauss(self.NOISE_V))
+
+    @scpi("MEASure[:SCALar]:CURRent[:DC]", query=True, nargs=(1, 1))
+    def _meas_amps(self, args: List[str], suffixes: List[int]) -> str:
+        output = self._outputs(args)[0]
+        return self.measured(self._solved(output)[1] + self.gauss(self.NOISE_A))
+
+    @scpi("STATus:QUEStionable:INSTrument:ISUMmary#:CONDition", query=True)
+    def _mode(self, args: List[str], suffixes: List[int]) -> str:
+        if suffixes[0] not in self.OUTPUTS:
+            raise ScpiError(-114, f"Header suffix out of range; {suffixes[0]}")
+        return str(self._solved(suffixes[0])[2])
+
+
+INSTRUMENT_CLASSES = {
+    cls.kind: cls
+    for cls in (SimDmm, SimSupply, SimLoad, SimScope, SimGenerator, SimSmu, SimCounter, SimSwitch, SimLcr, SimMultiSupply)
+}

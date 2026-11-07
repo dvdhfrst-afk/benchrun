@@ -73,18 +73,26 @@ _BINARY = {
 _UNARY = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 
 
+MAX_EXPRESSION_CHARS = 2000
+
+
 class Expression:
     """A parsed expression. Create it once, evaluate it at every sweep point."""
 
     def __init__(self, text: str):
         self.text = text.strip()
+        if len(self.text) > MAX_EXPRESSION_CHARS:
+            raise ExpressionError(f"expression is longer than {MAX_EXPRESSION_CHARS} characters: {text[:60]!r}...")
         try:
             tree = ast.parse(self.text, mode="eval")
-        except (SyntaxError, ValueError) as exc:
-            raise ExpressionError(f"cannot parse expression {text!r}") from exc
+        except (SyntaxError, ValueError, MemoryError, RecursionError) as exc:
+            raise ExpressionError(f"cannot parse expression {text[:200]!r}") from exc
         self._body = tree.body
         self.names: Set[str] = set()
-        self._check(self._body)
+        try:
+            self._check(self._body)
+        except RecursionError as exc:
+            raise ExpressionError(f"expression is too deeply nested: {text[:60]!r}...") from exc
 
     def __repr__(self) -> str:
         return f"Expression({self.text!r})"
@@ -158,7 +166,7 @@ class Expression:
             raise
         except KeyError as exc:
             raise ExpressionError(f"{self.text}: unknown name {exc}") from exc
-        except (ArithmeticError, TypeError, ValueError) as exc:
+        except (ArithmeticError, TypeError, ValueError, RecursionError) as exc:
             raise ExpressionError(f"{self.text}: {exc}") from exc
         if isinstance(result, bool) or not isinstance(result, (int, float)):
             raise ExpressionError(f"{self.text}: result is a list, not a number; wrap it in max(), mean() or similar")
@@ -168,7 +176,7 @@ class Expression:
 
     def _eval(self, node: ast.AST, env: Mapping[str, Any]) -> Any:
         if isinstance(node, ast.Constant):
-            return node.value
+            return float(node.value)  # As floats, 9**9**9 overflows at once instead of filling memory.
         if isinstance(node, ast.Name):
             return env[node.id]
         if isinstance(node, ast.BinOp):

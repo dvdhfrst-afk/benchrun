@@ -7,21 +7,27 @@ Result rules, in order of precedence:
 * fail: every instrument behaved and at least one measurement failed. A reading
   past the instrument's range and a calculation with no answer both count.
 * pass: every limited measurement passed, and at least one was evaluated.
+
+However a run ends, every instrument that was identified gets its outputs
+switched off and confirmed off before anything else happens. That path does not
+depend on the results database, the console or the plan's own teardown working.
 """
 
 from __future__ import annotations
 
 import re
+import sqlite3
 import time
-from dataclasses import dataclass
-from typing import IO, Any, Callable, Dict, List, Mapping, Optional
+from dataclasses import dataclass, field
+from typing import IO, Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from benchrun import __version__
 from benchrun.drivers import DRIVERS
 from benchrun.drivers.base import Instrument
-from benchrun.errors import ExpressionError, IdentityMismatch, InstrumentFault, ReadingOverload
+from benchrun.errors import ExpressionError, IdentityMismatch, InstrumentFault, OperatorUnavailable, ReadingOverload
+from benchrun.expr import Expression
 from benchrun.limits import ERROR, FAIL, PASS, Limit
-from benchrun.plan import Call, Measure, Plan, Step, resolve
+from benchrun.plan import MAX_WAIT_S, Call, Measure, Plan, Step, resolve
 from benchrun.store import Store
 from benchrun.transport import LoggingTransport, TcpTransport, Transport, parse_address
 from benchrun.units import convert
@@ -31,6 +37,7 @@ RUN_FAIL = "fail"
 RUN_ABORTED = "aborted"
 
 Console = Callable[[str], None]
+SAFE_INTERRUPTS_ALLOWED = 3  # Ctrl+C while switching off is asked to wait this many times.
 
 
 @dataclass
@@ -40,6 +47,8 @@ class RunResult:
     reason: Optional[str]
     failed: int
     passed: int
+    unsafe: List[str] = field(default_factory=list)  # Instruments not confirmed off.
+    database_problem: Optional[str] = None
 
 
 class _RunAborted(Exception):
@@ -56,6 +65,10 @@ class _StopOnFail(Exception):
 
 def _silent(_: str) -> None:
     pass
+
+
+def _no_operator(text: str) -> None:
+    raise OperatorUnavailable(f"the plan asks the operator to {text!r}, and nobody can answer here")
 
 
 def default_transport(address: str, timeout_s: float) -> Transport:
@@ -76,6 +89,10 @@ class Runner:
         scpi_log: Optional[IO[str]] = None,
         transport_factory: Callable[[str, float], Transport] = default_transport,
         sleep: Callable[[float], None] = time.sleep,
+        note: str = "",
+        only_steps: Optional[Sequence[str]] = None,
+        prompt: Callable[[str], None] = _no_operator,
+        verbose: bool = False,
     ):
         self.plan = plan
         self.store = store
@@ -85,7 +102,15 @@ class Runner:
         self.scpi_log = scpi_log
         self.transport_factory = transport_factory
         self.sleep = sleep
-        self.instruments: Dict[str, Instrument] = {}
+        self.note = note
+        self.only_steps = None if only_steps is None else list(only_steps)
+        self.prompt = prompt
+        self.verbose = verbose
+        self.instruments: Dict[str, Instrument] = {}  # Identified, so safe to command.
+        self._opened: List[Instrument] = []  # Everything with a socket to close.
+        self._made_safe = False
+        self.unsafe: List[str] = []
+        self.database_problem: Optional[str] = None
         self.run_id = -1
         self.limited_evaluated = 0
         self.passed = 0
@@ -104,6 +129,8 @@ class Runner:
             plan.variables,
             self.operator,
             __version__,
+            self.note,
+            self.only_steps,
         )
         self.console(f"Run {self.run_id}: serial {self.serial}, plan {plan.name} {plan.version}".rstrip())
         setup_id = self.store.add_step(self.run_id, 0, "(setup)", "setup")
@@ -116,6 +143,9 @@ class Runner:
             try:
                 self._run_setup(setup_id)
                 for step, step_id in zip(plan.steps, step_ids):
+                    if self.only_steps is not None and step.name not in self.only_steps:
+                        self.store.finish_step(step_id, "skipped", "not selected for this run")
+                        continue
                     self._run_step(step, step_id)
             except _StopOnFail:
                 pass
@@ -124,28 +154,37 @@ class Runner:
             except KeyboardInterrupt:
                 reason = "interrupted by the operator"
                 self._mark_running_step_aborted(reason)
+            except sqlite3.Error as exc:
+                self._database_failed(exc)
+                reason = f"results database failed: {exc}"
             except Exception as exc:  # A bug must not read as a verdict, or lose the record.
                 reason = f"internal error: {type(exc).__name__}: {exc}"
                 self._mark_running_step_aborted(reason)
-            try:
-                teardown_problem = self._run_teardown(teardown_id)
-            except KeyboardInterrupt:
-                teardown_problem = "interrupted by the operator"
-                self._mark_running_step_aborted(teardown_problem)
+            teardown_problem = self._run_teardown(teardown_id)
             if teardown_problem and reason is None:
                 reason = f"teardown failed: {teardown_problem}"
         finally:
+            # Reached without a safe bench only if something above escaped.
+            if not self._made_safe:
+                self._make_all_safe([])
             self._close_instruments()
 
         if reason is not None:
             skip_message = f"not run: {reason}"
-        self.store.skip_pending_steps(self.run_id, skip_message)
+        self._recording(self.store.skip_pending_steps, self.run_id, skip_message)
         status, reason = self._decide(reason)
-        self.store.finish_run(self.run_id, status, reason)
+        self._recording(self.store.finish_run, self.run_id, status, reason)
         self.console(f"RESULT: {status.upper()}" + (f" ({reason})" if reason else ""))
-        return RunResult(self.run_id, status, reason, self.failed, self.passed)
+        if self.unsafe:
+            self.console(
+                f"WARNING: could not confirm these are off: {', '.join(self.unsafe)}. "
+                "Check them by hand before touching the bench."
+            )
+        return RunResult(self.run_id, status, reason, self.failed, self.passed, list(self.unsafe), self.database_problem)
 
     def _decide(self, reason: Optional[str]):
+        if reason is None and self.database_problem is not None:
+            reason = f"results database failed: {self.database_problem}"
         if reason is not None:
             return RUN_ABORTED, reason
         if self.failed:
@@ -154,12 +193,20 @@ class Runner:
             return RUN_ABORTED, "no limited measurement was evaluated, so the unit has no verdict"
         return RUN_PASS, None
 
+    def _database_failed(self, exc: Exception) -> None:
+        if self.database_problem is None:
+            self.database_problem = str(exc)
+            self.console(f"[ERROR] results database: {exc}. Anything measured from here on is not recorded.")
+
+    def _recording(self, write: Callable[..., Any], *args: Any) -> None:
+        """A write made while a run is ending. Losing it must not stop the rest."""
+        try:
+            write(*args)
+        except sqlite3.Error as exc:
+            self._database_failed(exc)
+
     def _mark_running_step_aborted(self, reason: str) -> None:
-        with self.store.conn:
-            self.store.conn.execute(
-                "UPDATE steps SET status = 'error', message = ? WHERE run_id = ? AND status = 'running'",
-                (reason, self.run_id),
-            )
+        self._recording(self.store.abort_running_steps, self.run_id, reason)
 
     # Connecting ----------------------------------------------------------
 
@@ -169,14 +216,16 @@ class Runner:
         transport = self.transport_factory(spec.address or "", spec.timeout_s)
         if self.scpi_log is not None:
             transport = LoggingTransport(transport, name, self.scpi_log)
-        driver = DRIVERS[spec.driver](transport, name, spec.commands)
+        driver = DRIVERS[spec.driver](transport, name, spec.commands, spec.reply_pattern)
+        self._opened.append(driver)
         driver.connect()
-        self.instruments[name] = driver
         idn = driver.identify()
         self.store.set_instrument_idn(row_id, idn)
         self.console(f"  {name:<10} {spec.address:<24} {idn}")
         if spec.expect_idn and not re.search(spec.expect_idn, idn):
+            # Whatever answered is not ours to command, not even to switch off.
             raise IdentityMismatch(f"*IDN? returned {idn!r}, which does not match {spec.expect_idn!r}", name)
+        self.instruments[name] = driver
         driver.reset()
 
     def _run_setup(self, step_id: int) -> None:
@@ -185,7 +234,7 @@ class Runner:
             for name in self.plan.instruments:
                 self._connect(name)
             self._run_calls(self.plan.setup, dict(self.plan.variables))
-        except (InstrumentFault, ExpressionError) as exc:
+        except (InstrumentFault, ExpressionError, OperatorUnavailable) as exc:
             self.store.finish_step(step_id, "error", str(exc))
             self.console(f"[ERROR] setup: {exc}")
             raise _RunAborted(str(exc)) from exc
@@ -193,29 +242,49 @@ class Runner:
 
     def _run_teardown(self, step_id: int) -> Optional[str]:
         """Always attempted. A dead instrument must not stop the others going safe."""
-        self.store.begin_step(step_id)
+        self._recording(self.store.begin_step, step_id)
         problems: List[str] = []
         env = dict(self.plan.variables)
-        for call in self.plan.teardown:
-            if call.instrument is not None and call.instrument not in self.instruments:
-                continue
-            try:
-                self._run_call(call, env)
-            except (InstrumentFault, ExpressionError, TypeError, ValueError) as exc:
-                problems.append(str(exc))
-        for name, instrument in self.instruments.items():
-            try:
-                instrument.safe_state()
-            except InstrumentFault as exc:
-                problems.append(f"could not make {name} safe: {exc}")
+        try:
+            for call in self.plan.teardown:
+                if call.instrument is not None and call.instrument not in self.instruments:
+                    continue
+                try:
+                    self._run_call(call, env)
+                except (InstrumentFault, ExpressionError, TypeError, ValueError) as exc:
+                    problems.append(str(exc))
+        except KeyboardInterrupt:
+            problems.append("the plan's teardown was interrupted by the operator")
+        self._make_all_safe(problems)
         message = "; ".join(problems) if problems else None
-        self.store.finish_step(step_id, "error" if problems else PASS, message)
+        self._recording(self.store.finish_step, step_id, "error" if problems else PASS, message)
         if problems:
             self.console(f"[ERROR] teardown: {message}")
         return message
 
+    def _make_all_safe(self, problems: List[str]) -> None:
+        """Switch everything off, last connected first, and note what would not go."""
+        self._made_safe = True
+        interrupts = 0
+        pending = list(self.instruments.items())
+        while pending:
+            name, instrument = pending[-1]
+            try:
+                instrument.make_safe()
+            except KeyboardInterrupt:
+                interrupts += 1
+                if interrupts <= SAFE_INTERRUPTS_ALLOWED:
+                    self.console("Still switching outputs off. Please wait for this to finish.")
+                    continue
+                problems.append(f"could not make {name} safe: interrupted by the operator")
+                self.unsafe.append(name)
+            except Exception as exc:  # Whatever it is, the next instrument still goes off.
+                problems.append(f"could not make {name} safe: {exc}")
+                self.unsafe.append(name)
+            pending.pop()
+
     def _close_instruments(self) -> None:
-        for instrument in self.instruments.values():
+        for instrument in self._opened:
             instrument.close()
 
     # Steps ---------------------------------------------------------------
@@ -225,8 +294,14 @@ class Runner:
             self._run_call(call, env)
 
     def _run_call(self, call: Call, env: Mapping[str, Any]) -> None:
+        if call.prompt is not None:
+            self.prompt(call.prompt)
+            return
         if call.instrument is None:
-            self.sleep(float(resolve(call.wait_s, env)))
+            wait = float(resolve(call.wait_s, env))
+            if not 0.0 <= wait <= MAX_WAIT_S:
+                raise ExpressionError(f"wait_s worked out to {wait:g}; it must be from 0 to {MAX_WAIT_S:g} seconds")
+            self.sleep(wait)
             return
         kwargs = {key: resolve(value, env) for key, value in call.args.items()}
         getattr(self.instruments[call.instrument], call.method)(**kwargs)
@@ -259,7 +334,7 @@ class Runner:
                 value = self._take(step_id, step, measure, summary_env, {}, step_failed)
                 taken[0] += 1
                 summary_env[measure.name] = value
-        except (InstrumentFault, ExpressionError) as exc:
+        except (InstrumentFault, ExpressionError, OperatorUnavailable) as exc:
             message = str(exc)
             self.store.finish_step(step_id, "error", message)
             self.console(f"[ERROR] {step.name}: {message}")
@@ -281,8 +356,17 @@ class Runner:
         point: Mapping[str, float],
         step_failed: List[int],
     ) -> Optional[float]:
-        limit = Limit(_as_limit(resolve(measure.low, env)), _as_limit(resolve(measure.high, env)))
         note: Optional[str] = None
+        limit_unknown = False
+        try:
+            limit = Limit(_as_limit(resolve(measure.low, env)), _as_limit(resolve(measure.high, env)))
+        except ExpressionError as exc:
+            if not _uses_failed_value((measure.low, measure.high), env):
+                raise  # The plan's own arithmetic is wrong, which says nothing about the unit.
+            limit, limit_unknown = Limit(), True
+            note = f"limit depends on a value that failed: {exc}"
+        if limit.low is not None and limit.high is not None and limit.low > limit.high:
+            raise ExpressionError(f"{measure.name}: low limit {limit.low:g} is above high limit {limit.high:g}")
         kind = "calc" if measure.calc is not None else "read"
         if measure.calc is not None:
             try:
@@ -300,13 +384,22 @@ class Runner:
                 # range. That says something about the unit, so it counts as a fail.
                 value = None
                 note = str(exc)
+            except ExpressionError as exc:
+                if not _uses_failed_value(measure.args.values(), env):
+                    raise
+                value = None
+                note = f"argument depends on a value that failed: {exc}"
             except InstrumentFault as exc:
                 self._record(step_id, measure, kind, point, None, limit, ERROR, str(exc))
                 raise
         verdict = limit.evaluate(value)
-        if value is None:
+        if value is None or limit_unknown:
             verdict = FAIL  # Never a pass, and an unlimited calculation must still count.
         self._record(step_id, measure, kind, point, value, limit, verdict, note)
+        if self.verbose:
+            where = " ".join(f"{k}={v:g}" for k, v in point.items())
+            shown = "no value" if value is None else f"{value:.6g} {measure.units}".rstrip()
+            self.console(f"    {verdict:<5} {step.name}.{measure.name} {where + ' ' if where else ''}= {shown}, limit {limit.describe(measure.units)}")
         if limit.is_limited or verdict == FAIL:
             self.limited_evaluated += 1
         if verdict == PASS:
@@ -372,4 +465,15 @@ class Runner:
 
 def _as_limit(value: Any) -> Optional[float]:
     return None if value is None else float(value)
+
+
+def _uses_failed_value(items: Any, env: Mapping[str, Any]) -> bool:
+    """True when an expression reads a measurement that has no value."""
+    for item in items:
+        if isinstance(item, Expression):
+            for name in item.names:
+                value = env.get(name, 0.0)
+                if value is None or (isinstance(value, list) and None in value):
+                    return True
+    return False
 

@@ -1,0 +1,48 @@
+{
+  "name": "capacitor-lcr",
+  "version": "1.0",
+  "description": "LCR meter: capacitance and dissipation factor at two test frequencies.",
+  "vars": {
+    "cnom": 1e-05
+  },
+  "instruments": {
+    "lcr": {
+      "driver": "lcr",
+      "address": "127.0.0.1:5033"
+    }
+  },
+  "steps": [
+    {
+      "name": "capacitance",
+      "sweep": {
+        "var": "hertz",
+        "values": [
+          120.0,
+          1000.0
+        ]
+      },
+      "apply": [
+        {
+          "do": "lcr.configure",
+          "function": "CPD",
+          "hertz": "=hertz",
+          "volts": 1.0
+        }
+      ],
+      "measure": [
+        {
+          "name": "capacitance",
+          "read": "lcr.measure_capacitance",
+          "units": "uF",
+          "low": "=cnom * 1e6 * 0.9",
+          "high": "=cnom * 1e6 * 1.1"
+        },
+        {
+          "name": "dissipation",
+          "read": "lcr.measure_secondary",
+          "high": 0.05
+        }
+      ]
+    }
+  ]
+}

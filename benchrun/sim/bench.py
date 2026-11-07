@@ -11,7 +11,8 @@ from benchrun.sim.model import DUT_VARIANTS, BenchModel, RegulatorParams
 from benchrun.sim.server import InstrumentServer
 
 DEFAULT_BASE_PORT = 5025
-PORT_ORDER = ("dmm", "psu", "eload", "scope", "siggen")
+PORT_ORDER = ("dmm", "psu", "eload", "scope", "siggen", "smu", "counter", "switch", "lcr", "psu_multi")
+NO_READINGS = ("siggen", "switch")  # Their faults count settings, so there is no reading to corrupt.
 
 
 def parse_fault(text: str) -> Dict[str, Fault]:
@@ -28,8 +29,8 @@ def parse_fault(text: str) -> Dict[str, Fault]:
         if not pieces[2].isdigit():
             raise PlanError([problem])
         after = int(pieces[2])
-    if pieces[0] == "siggen" and pieces[1] in ("garbage", "overload"):
-        raise PlanError([f"bad fault {text!r}; the generator has no readings to corrupt, so use drop, hang or error"])
+    if pieces[0] in NO_READINGS and pieces[1] in ("garbage", "overload"):
+        raise PlanError([f"bad fault {text!r}; the {pieces[0]} has no readings to corrupt, so use drop, hang or error"])
     return {pieces[0]: Fault(pieces[1], after)}
 
 

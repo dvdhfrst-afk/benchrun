@@ -94,6 +94,8 @@ def render_junit(detail: Dict[str, Any]) -> str:
     add_property("run_status", detail["status"])
     add_property("reason", detail["reason"])
     add_property("operator", detail["operator"])
+    add_property("note", detail.get("note"))
+    add_property("selected_steps", ",".join(detail.get("selected_steps") or []))
     add_property("plan_version", detail["plan_version"])
     add_property("plan_sha256", detail["plan_hash"])
     for instrument in detail["instruments"]:

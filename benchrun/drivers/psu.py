@@ -10,11 +10,14 @@ from benchrun.drivers.base import Instrument, action, reading
 class PowerSupply(Instrument):
     """A single-output supply using ``VOLT``, ``CURR``, ``OUTP`` and ``MEAS``."""
 
+    HAS_OUTPUT = True
+
     COMMANDS = {
         **Instrument.COMMANDS,
         "set_voltage": "VOLT {volts:.12g}",
         "set_current_limit": "CURR {amps:.12g}",
         "output": "OUTP {state}",
+        "output_state": "OUTP?",
         "measure_voltage": "MEAS:VOLT?",
         "measure_current": "MEAS:CURR?",
         "operation_condition": "STAT:OPER:COND?",
@@ -59,3 +62,4 @@ class PowerSupply(Instrument):
 
     def safe_state(self) -> None:
         self.output_off()
+        self._confirm_off("output_state")

@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import inspect
 import json
+import math
 import os
 import re
+import signal
 import sqlite3
 import sys
 import time
 import traceback
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
 from benchrun import __version__
 from benchrun.drivers import DRIVERS
-from benchrun.errors import BenchrunError, InstrumentFault, PlanError
-from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station
+from benchrun.errors import BenchrunError, InstrumentFault, OperatorUnavailable, PlanError
+from benchrun.files import atomic_write_text
+from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station, select_steps
 from benchrun.reports import FORMATS, write_reports
+from benchrun.reports.csv_report import render_many
 from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_transport
 from benchrun.sim.bench import DEFAULT_BASE_PORT, PORT_ORDER, SimBench, parse_fault
 from benchrun.sim.model import DUT_VARIANTS
@@ -33,12 +39,30 @@ DEFAULT_DB = "benchrun.sqlite"
 _EXIT_BY_STATUS = {RUN_PASS: EXIT_PASS, RUN_FAIL: EXIT_FAIL, RUN_ABORTED: EXIT_ABORTED}
 
 
-def _say(text: str = "") -> None:
+_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+MAX_TEXT_CHARS = 2000
+
+
+def _print_to(stream_name: str, text: str) -> None:
+    """Text can hold what an instrument or a file said, so nothing in it may steer the terminal."""
+    cleaned = _CONTROL.sub("?", text)
+    stream = getattr(sys, stream_name)
     try:
-        print(text, flush=True)
-    except UnicodeEncodeError:
-        # An instrument's response must not be able to stop a run at the console.
-        print(text.encode("ascii", "backslashreplace").decode("ascii"), flush=True)
+        try:
+            print(cleaned, file=stream, flush=True)
+        except UnicodeEncodeError:
+            print(cleaned.encode("ascii", "backslashreplace").decode("ascii"), file=stream, flush=True)
+    except (OSError, ValueError):
+        # The reader went away, as with "| head". That must not change a result.
+        setattr(sys, stream_name, open(os.devnull, "w", encoding="utf-8"))
+
+
+def _say(text: str = "") -> None:
+    _print_to("stdout", text)
+
+
+def _complain(text: str) -> None:
+    _print_to("stderr", text)
 
 
 def _parse_pairs(items: Optional[Iterable[str]], flag: str) -> Dict[str, str]:
@@ -63,9 +87,103 @@ def _parse_variables(items: Optional[Iterable[str]]) -> Dict[str, float]:
 
 def _check_serial(serial: str) -> str:
     cleaned = serial.strip()
-    if not cleaned or len(cleaned) > 128 or any(ord(ch) < 32 for ch in cleaned):
+    if not cleaned or len(cleaned) > 128 or _CONTROL.search(cleaned) or "\n" in cleaned or "\t" in cleaned:
         raise PlanError([f"serial number {serial!r} must be 1 to 128 printable characters"])
     return cleaned
+
+
+def _check_label(text: str, flag: str) -> str:
+    if len(text) > MAX_TEXT_CHARS or _CONTROL.search(text) or "\n" in text:
+        raise PlanError([f"{flag} must be one line of at most {MAX_TEXT_CHARS} printable characters"])
+    return text
+
+
+def _utc_time(text: Optional[str], flag: str, end_of_day: bool = False) -> Optional[str]:
+    """Turn a date or a date and time, taken as UTC, into the form the database stores."""
+    if text is None:
+        return None
+    for pattern in ("%Y-%m-%d", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            parsed = datetime.strptime(text, pattern)
+        except ValueError:
+            continue
+        if pattern == "%Y-%m-%d" and end_of_day:
+            return parsed.strftime("%Y-%m-%dT23:59:59.999+00:00")
+        return parsed.strftime("%Y-%m-%dT%H:%M:%S.000+00:00")
+    raise PlanError([f"{flag}: {text!r} is not a time; use YYYY-MM-DD or YYYY-MM-DDTHH:MM (UTC)"])
+
+
+def _positive_number(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(f"{text} must be a finite number above 0")
+    return value
+
+
+def _not_negative_number(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError(f"{text} must be a finite number, 0 or above")
+    return value
+
+
+def _not_negative_whole(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"{text} must be 0 or above")
+    return value
+
+
+def _open_store(path: str) -> Store:
+    store = Store(path)
+    if store.upgrade_note:
+        _complain(store.upgrade_note)
+    return store
+
+
+@contextlib.contextmanager
+def _stop_requests_interrupt() -> Iterator[None]:
+    """A service stop or a closed window then ends a run the way Ctrl+C does: outputs go off first."""
+
+    def interrupt(signum: int, frame: Any) -> None:
+        raise KeyboardInterrupt()
+
+    previous = {}
+    for name in ("SIGTERM", "SIGBREAK", "SIGHUP"):
+        number = getattr(signal, name, None)
+        if number is not None:
+            with contextlib.suppress(ValueError, OSError):
+                previous[number] = signal.signal(number, interrupt)
+    try:
+        yield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
+def _ask_operator(text: str) -> None:
+    _say(f"OPERATOR: {text}")
+    try:
+        input("Press Enter to go on, or Ctrl+C to stop the run: ")
+    except EOFError:
+        raise OperatorUnavailable(f"the plan asks the operator to {text!r}, but no one can answer here; use --auto-confirm in a script") from None
+
+
+def _confirm_automatically(text: str) -> None:
+    _say(f"OPERATOR: {text} (continued automatically)")
+
+
+def _count(number: int, word: str) -> str:
+    return f"{number} {word}" if number == 1 else f"{number} {word}s"
 
 
 def _table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> str:
@@ -107,10 +225,7 @@ def cmd_sim(args: argparse.Namespace) -> int:
             device = bench.devices[kind]
             _say(f"  {kind:<7} {bench.servers[kind].address:<20} {device.idn}")
         if args.write_addresses:
-            payload = {"addresses": bench.addresses}
-            temporary = f"{args.write_addresses}.tmp"
-            Path(temporary).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-            os.replace(temporary, args.write_addresses)
+            atomic_write_text(args.write_addresses, json.dumps({"addresses": bench.addresses}, indent=2) + "\n")
             _say(f"Addresses written to {args.write_addresses}")
         _say("Press Ctrl+C to stop.")
         try:
@@ -137,6 +252,8 @@ def _load_for_bench(args: argparse.Namespace, variables: Optional[Dict[str, floa
 
 def cmd_run(args: argparse.Namespace) -> int:
     serial = _check_serial(args.serial)
+    operator = _check_label(args.operator, "--operator")
+    note = _check_label(args.note, "--note")
     variables = _parse_variables(args.set)
     bench: Optional[SimBench] = None
     if args.sim:
@@ -155,14 +272,42 @@ def cmd_run(args: argparse.Namespace) -> int:
             raise PlanError(["--dut and --fault only apply with --sim; otherwise set them on the sim command"])
         plan = _load_for_bench(args, variables)
 
-    log_handle = open(args.scpi_log, "w", encoding="utf-8") if args.scpi_log else None
+    log_handle = None
     try:
-        with Store(args.db) as store:
-            result = Runner(plan, store, serial, operator=args.operator, console=_say, scpi_log=log_handle).run()
-            detail = store.run_detail(result.run_id)
-        if args.report_dir:
-            for path in write_reports(detail, args.report_dir):
-                _say(f"Report: {path}")
+        only_steps = select_steps(plan, args.step) if args.step else None
+        # Added to, never replaced: an earlier run's traffic may be evidence.
+        log_handle = open(args.scpi_log, "a", encoding="utf-8") if args.scpi_log else None
+        with _open_store(args.db) as store:
+            runner = Runner(
+                plan,
+                store,
+                serial,
+                operator=operator,
+                console=_say,
+                scpi_log=log_handle,
+                note=note,
+                only_steps=only_steps,
+                prompt=_confirm_automatically if args.auto_confirm else _ask_operator,
+                verbose=args.verbose,
+            )
+            with _stop_requests_interrupt():
+                result = runner.run()
+            detail = None
+            if result.database_problem is None:
+                detail = store.run_detail(result.run_id)
+        if result.database_problem is not None:
+            _complain(
+                f"error: results database {args.db} failed during the run: {result.database_problem}. "
+                "Whatever reached it before that is still there. No report was written."
+            )
+        elif args.report_dir:
+            try:
+                for path in write_reports(detail, args.report_dir):
+                    _say(f"Report: {path}")
+            except OSError as exc:
+                _complain(f"error: cannot write reports to {args.report_dir}: {exc}")
+                _complain(f"The result of run {result.run_id} is safe in {args.db}; write it later with the report command.")
+                return EXIT_ABORTED
     finally:
         if log_handle is not None:
             log_handle.close()
@@ -177,6 +322,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
     _say(f"{args.plan}: OK")
     _say(f"  {plan.name} {plan.version}".rstrip())
     _say(f"  {len(plan.instruments)} instruments, {len(plan.steps)} steps, {points} measurements per run")
+    unaddressed = [spec.name for spec in plan.instruments.values() if not spec.address]
+    if unaddressed:
+        _say(f"  Needs an address from --station, --address or --sim: {', '.join(unaddressed)}")
     return EXIT_PASS
 
 
@@ -186,7 +334,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     rows = []
     problems = 0
     for spec in plan.instruments.values():
-        driver = DRIVERS[spec.driver](default_transport(spec.address, spec.timeout_s), spec.name, spec.commands)
+        driver = DRIVERS[spec.driver](default_transport(spec.address, spec.timeout_s), spec.name, spec.commands, spec.reply_pattern)
         state = "ok"
         idn = ""
         try:
@@ -231,7 +379,7 @@ def _pick_run_ids(args: argparse.Namespace, store: Store) -> List[int]:
     rows = store.find_runs(serial=args.serial, plan=args.plan)
     if not rows:
         return []
-    if args.all:
+    if getattr(args, "all", False):
         return [row["id"] for row in reversed(rows)]
     return [rows[0]["id"]]
 
@@ -240,7 +388,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     if not Path(args.db).exists():
         raise PlanError([f"no results database at {args.db}"])
     formats = FORMATS if args.format == "all" else (args.format,)
-    with Store(args.db) as store:
+    with _open_store(args.db) as store:
         run_ids = _pick_run_ids(args, store)
         if not run_ids:
             _say("No matching runs.")
@@ -255,6 +403,113 @@ def cmd_report(args: argparse.Namespace) -> int:
     return EXIT_PASS
 
 
+def cmd_show(args: argparse.Namespace) -> int:
+    """One run in the terminal: enough to see what went wrong without opening a report."""
+    if not Path(args.db).exists():
+        raise PlanError([f"no results database at {args.db}"])
+    with _open_store(args.db) as store:
+        run_ids = _pick_run_ids(args, store)
+        detail = store.run_detail(run_ids[0]) if run_ids else None
+    if detail is None:
+        _say("No matching run.")
+        return EXIT_USAGE
+    if args.json:
+        _say(json.dumps(detail, indent=2))
+        return EXIT_PASS
+    _say(f"Run {detail['id']}: serial {detail['serial']}, plan {detail['plan_name']} {detail['plan_version']}".rstrip())
+    _say(f"Result: {detail['status'].upper()}" + (f" ({detail['reason']})" if detail["reason"] else ""))
+    if detail["status"] == "running":
+        _say("It never finished: it is still going, or the process stopped. Check the bench; an output may still be on.")
+    if detail["selected_steps"] is not None:
+        _say(f"Only these steps were selected: {', '.join(detail['selected_steps'])}")
+    _say(f"Started {detail['started_at']}, finished {detail['finished_at'] or 'never'} (UTC)")
+    for label, value in (("Operator", detail["operator"]), ("Note", detail["note"])):
+        if value:
+            _say(f"{label}: {value}")
+    _say()
+    _say(_table(("instrument", "driver", "address", "*IDN?"), [(i["name"], i["driver"], i["address"], i["idn"]) for i in detail["instruments"]]))
+    _say()
+    for step in detail["steps"]:
+        counts = step["measurements"]
+        bad = sum(1 for m in counts if m["verdict"] in ("fail", "error"))
+        tail = f": {step['message']}" if step["message"] and not counts else ""
+        _say(f"[{step['status'].upper()}] {step['name']} ({len(counts)} measured, {bad} failed){tail}")
+        for m in counts:
+            if args.all_measurements or m["verdict"] in ("fail", "error"):
+                where = " ".join(f"{k}={v:g}" for k, v in m["point"].items())
+                shown = "no value" if m["value"] is None else f"{m['value']:.6g} {m['units']}".rstrip()
+                limits = f"{_fmt(m['low']) or '-inf'} to {_fmt(m['high']) or '+inf'}"
+                extra = f" ({m['note']})" if m["note"] else ""
+                _say(f"    {m['verdict'].upper():<5} {m['name']}{' at ' + where if where else ''}: {shown}, limits {limits}{extra}")
+    return EXIT_PASS
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Every matching run in one CSV file, for a spreadsheet or a script."""
+    if not Path(args.db).exists():
+        raise PlanError([f"no results database at {args.db}"])
+    if Path(args.out).exists() and not args.force:
+        raise PlanError([f"{args.out} already exists; choose another name or add --force to replace it"])
+    since = _utc_time(args.since, "--since")
+    until = _utc_time(args.until, "--until", end_of_day=True)
+    with _open_store(args.db) as store:
+        rows = store.find_runs(serial=args.serial, plan=args.plan, status=args.status, since=since, until=until)
+        details = [store.run_detail(row["id"]) for row in reversed(rows)]
+    if not details:
+        _complain("No matching runs, so nothing was written.")
+        return EXIT_USAGE
+    atomic_write_text(args.out, render_many(details))
+    _say(f"Wrote {len(details)} runs to {args.out}")
+    return EXIT_PASS
+
+
+STARTER_PLAN = {
+    "name": "my-first-plan",
+    "version": "1.0",
+    "description": "Sets an input voltage and checks an output voltage. Replace the limits and addresses with your own.",
+    "vars": {"vnom": 5.0, "tolerance": 0.1},
+    "instruments": {
+        "supply": {"driver": "psu", "address": "127.0.0.1:5026", "timeout_s": 5.0},
+        "dmm": {"driver": "dmm", "address": "127.0.0.1:5025", "timeout_s": 5.0},
+    },
+    "setup": [
+        {"do": "supply.set_current_limit", "amps": 0.5},
+        {"do": "supply.set_voltage", "volts": 12.0},
+        {"do": "supply.output_on"},
+        {"wait_s": 0.1},
+    ],
+    "steps": [
+        {
+            "name": "output_voltage",
+            "description": "The output stays in tolerance across the input range.",
+            "sweep": {"var": "vin", "values": [8.0, 12.0, 16.0]},
+            "apply": [{"do": "supply.set_voltage", "volts": "=vin"}],
+            "settle_s": 0.05,
+            "measure": [
+                {
+                    "name": "vout",
+                    "read": "dmm.measure_dc_voltage",
+                    "units": "V",
+                    "low": "=vnom - tolerance",
+                    "high": "=vnom + tolerance",
+                }
+            ],
+        }
+    ],
+    "teardown": [{"do": "supply.output_off"}],
+}
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """Write a starter plan that runs as it is against the simulators."""
+    if Path(args.plan).exists() and not args.force:
+        raise PlanError([f"{args.plan} already exists; choose another name or add --force to replace it"])
+    atomic_write_text(args.plan, json.dumps(STARTER_PLAN, indent=2) + "\n")
+    _say(f"Wrote {args.plan}. Try it on the simulators:")
+    _say(f"  python -m benchrun run {args.plan} --serial TRY-1 --sim")
+    return EXIT_PASS
+
+
 def _print_runs(rows: List[Dict[str, Any]]) -> None:
     table_rows = [
         (
@@ -262,15 +517,15 @@ def _print_runs(rows: List[Dict[str, Any]]) -> None:
             row["started_at"][:19].replace("T", " "),
             row["serial"],
             f"{row['plan_name']} {row['plan_version']}".rstrip(),
-            row["status"].upper(),
+            row["status"].upper() + ("" if row["selected_steps"] is None else " (some steps)"),
             row["passed"],
             row["failed"],
             row["errors"],
-            row["reason"] or "",
+            "; ".join(part for part in (row["reason"], row["note"]) if part),
         )
         for row in rows
     ]
-    headers = ("run", "started (UTC)", "serial", "plan", "status", "pass", "fail", "error", "reason")
+    headers = ("run", "started (UTC)", "serial", "plan", "status", "pass", "fail", "error", "reason or note")
     _say(_table(headers, table_rows))
 
 
@@ -300,10 +555,20 @@ def _print_stats(rows: List[Dict[str, Any]]) -> None:
 def cmd_history(args: argparse.Namespace) -> int:
     if not Path(args.db).exists():
         raise PlanError([f"no results database at {args.db}"])
-    with Store(args.db) as store:
-        rows = store.find_runs(serial=args.serial, plan=args.plan, status=args.status, limit=args.limit)
-        if args.stats and not args.plan:
-            raise PlanError(["--stats needs --plan, because statistics are per plan"])
+    since = _utc_time(args.since, "--since")
+    until = _utc_time(args.until, "--until", end_of_day=True)
+    if args.stats and not args.plan:
+        raise PlanError(["--stats needs --plan, because statistics are per plan"])
+    with _open_store(args.db) as store:
+        rows = store.find_runs(
+            serial=args.serial,
+            plan=args.plan,
+            status=args.status,
+            limit=args.limit,
+            instrument=args.instrument,
+            since=since,
+            until=until,
+        )
         summary = store.plan_summary(args.plan) if args.plan else None
         stats = store.measurement_stats(args.plan, args.serial) if args.stats else None
     if args.json:
@@ -321,9 +586,14 @@ def cmd_history(args: argparse.Namespace) -> int:
     if summary is not None and summary["runs"]:
         counts = summary["counts"]
         _say()
+        extras = ""
+        if counts["running"]:
+            extras += f", {counts['running']} never finished"
+        if summary["partial_runs"]:
+            extras += f", {summary['partial_runs']} of only some steps (not counted)"
         _say(
-            f"Plan {summary['plan']}: {summary['runs']} runs on {summary['serials']} serials: "
-            f"{counts['pass']} pass, {counts['fail']} fail, {counts['aborted']} aborted"
+            f"Plan {summary['plan']}: {_count(summary['runs'], 'run')} on {_count(summary['serials'], 'serial')}: "
+            f"{counts['pass']} pass, {counts['fail']} fail, {counts['aborted']} aborted{extras}"
         )
         if summary["first_pass_yield"] is not None:
             _say(
@@ -367,7 +637,7 @@ def _add_address_args(parser: argparse.ArgumentParser) -> None:
 def _add_sim_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dut", default="good", choices=sorted(DUT_VARIANTS), help="simulated unit (default: good)")
     parser.add_argument("--seed", type=int, default=1, help="noise seed (default: 1)")
-    parser.add_argument("--noise", type=float, default=1.0, help="noise scale, 0 for none (default: 1)")
+    parser.add_argument("--noise", type=_not_negative_number, default=1.0, help="noise scale, 0 for none (default: 1)")
     parser.add_argument(
         "--fault",
         action="append",
@@ -378,7 +648,11 @@ def _add_sim_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="benchrun", description="Automated bench test runner.")
+    parser = argparse.ArgumentParser(
+        prog="benchrun",
+        description="Automated bench test runner: SCPI over TCP, JSON test plans, SQLite results, simulators included.",
+        epilog="Exit codes: 0 pass or success, 1 the unit failed, 2 bad plan or arguments, 3 run aborted or a file or instrument could not be used.",
+    )
     parser.add_argument("--version", action="version", version=f"benchrun {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -397,55 +671,93 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("plan", help="path to a plan JSON file")
     run.add_argument("--serial", required=True, help="unit serial number")
     run.add_argument("--operator", default="", help="operator label to record")
+    run.add_argument("--note", default="", help="one line to keep with the run, such as why it is being retested")
+    run.add_argument(
+        "--step",
+        action="append",
+        metavar="NAME",
+        help="run only this step (repeatable); the result is marked and left out of yield and statistics",
+    )
+    run.add_argument("--verbose", "-v", action="store_true", help="print every measurement as it is taken")
+    run.add_argument("--auto-confirm", action="store_true", help="carry on past operator prompts without waiting")
     run.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     run.add_argument("--set", action="append", metavar="VAR=NUMBER", help="override a plan variable (repeatable)")
     run.add_argument("--report-dir", help="also write HTML, CSV and JUnit XML reports here")
-    run.add_argument("--scpi-log", metavar="FILE", help="write all SCPI traffic to this file")
+    run.add_argument("--scpi-log", metavar="FILE", help="add all SCPI traffic to this file")
     _add_address_args(run)
     run.add_argument("--sim", action="store_true", help="start private simulators for just this run")
     _add_sim_args(run)
     run.set_defaults(func=cmd_run)
 
     validate = commands.add_parser("validate", help="check a plan without touching any instrument")
-    validate.add_argument("plan")
-    validate.add_argument("--set", action="append", metavar="VAR=NUMBER")
+    validate.add_argument("plan", help="path to a plan JSON file")
+    validate.add_argument("--set", action="append", metavar="VAR=NUMBER", help="override a plan variable (repeatable)")
     validate.set_defaults(func=cmd_validate)
 
     probe = commands.add_parser("probe", help="connect to a plan's instruments and show their *IDN? responses")
-    probe.add_argument("plan")
+    probe.add_argument("plan", help="path to a plan JSON file")
     _add_address_args(probe)
     probe.set_defaults(func=cmd_probe)
 
     report = commands.add_parser("report", help="write reports for recorded runs")
-    report.add_argument("--db", default=DEFAULT_DB)
+    report.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     report.add_argument("--run", type=int, help="run id")
     report.add_argument("--latest", action="store_true", help="the newest run")
     report.add_argument("--serial", help="the newest run for this serial")
     report.add_argument("--plan", help="the newest run of this plan")
     report.add_argument("--all", action="store_true", help="with --serial or --plan, every matching run")
-    report.add_argument("--format", default="all", choices=FORMATS + ("all",))
+    report.add_argument("--format", default="all", choices=FORMATS + ("all",), help="which format (default: all)")
     report.add_argument("--out", default="reports", help="output folder (default: reports)")
     report.set_defaults(func=cmd_report)
 
     history = commands.add_parser("history", help="list recorded runs by serial number or plan")
-    history.add_argument("--db", default=DEFAULT_DB)
-    history.add_argument("--serial")
-    history.add_argument("--plan")
-    history.add_argument("--status", choices=("pass", "fail", "aborted", "running"))
-    history.add_argument("--limit", type=int)
+    history.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
+    history.add_argument("--serial", help="only this unit")
+    history.add_argument("--plan", help="only this plan; also shows yield")
+    history.add_argument("--status", choices=("pass", "fail", "aborted", "running"), help="only runs with this result")
+    history.add_argument("--instrument", metavar="TEXT", help="only runs where an instrument's *IDN? response contains this")
+    history.add_argument("--since", metavar="TIME", help="only runs started at or after this UTC date or time, YYYY-MM-DD[THH:MM]")
+    history.add_argument("--until", metavar="TIME", help="only runs started at or before this UTC date or time")
+    history.add_argument("--limit", type=_not_negative_whole, help="only the newest N runs")
     history.add_argument("--stats", action="store_true", help="per-measurement statistics; needs --plan")
     history.add_argument("--json", action="store_true", help="machine-readable output")
     history.set_defaults(func=cmd_history)
 
+    show = commands.add_parser("show", help="print one run: its result, its steps and what failed")
+    show.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
+    show.add_argument("--run", type=int, help="run id")
+    show.add_argument("--latest", action="store_true", help="the newest run")
+    show.add_argument("--serial", help="the newest run for this serial")
+    show.add_argument("--plan", help="the newest run of this plan")
+    show.add_argument("--all-measurements", action="store_true", help="list every measurement, not only those that failed")
+    show.add_argument("--json", action="store_true", help="everything recorded, as JSON")
+    show.set_defaults(func=cmd_show)
+
+    export = commands.add_parser("export", help="write many runs into one CSV file")
+    export.add_argument("--out", required=True, help="the CSV file to write")
+    export.add_argument("--force", action="store_true", help="replace the file if it already exists")
+    export.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
+    export.add_argument("--serial", help="only this unit")
+    export.add_argument("--plan", help="only this plan")
+    export.add_argument("--status", choices=("pass", "fail", "aborted", "running"), help="only runs with this result")
+    export.add_argument("--since", metavar="TIME", help="only runs started at or after this UTC date or time")
+    export.add_argument("--until", metavar="TIME", help="only runs started at or before this UTC date or time")
+    export.set_defaults(func=cmd_export)
+
+    init = commands.add_parser("init", help="write a starter plan to edit")
+    init.add_argument("plan", help="path of the plan file to create")
+    init.add_argument("--force", action="store_true", help="replace the file if it already exists")
+    init.set_defaults(func=cmd_init)
+
     drivers = commands.add_parser("drivers", help="list drivers and what plans can call on them")
-    drivers.add_argument("driver", nargs="?")
+    drivers.add_argument("driver", nargs="?", help="just this driver")
     drivers.add_argument("--commands", action="store_true", help="also show SCPI templates plans can override")
     drivers.set_defaults(func=cmd_drivers)
 
     raw = commands.add_parser("scpi", help="send raw SCPI commands to one instrument")
     raw.add_argument("address", help="host:port")
     raw.add_argument("commands", nargs="+", help="commands; those containing ? read a response")
-    raw.add_argument("--timeout", type=float, default=5.0, help="seconds to wait for a response")
+    raw.add_argument("--timeout", type=_positive_number, default=5.0, help="seconds to wait for a response")
     raw.set_defaults(func=cmd_scpi)
     return parser
 
@@ -455,19 +767,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         return args.func(args)
     except PlanError as exc:
-        print("Cannot continue:", file=sys.stderr)
+        _complain("Cannot continue:")
         for problem in exc.problems:
-            print(f"  {problem}", file=sys.stderr)
+            _complain(f"  {problem}")
         return EXIT_USAGE
     except BenchrunError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        _complain(f"error: {exc}")
         return EXIT_ABORTED
     except (sqlite3.Error, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        _complain(f"error: {exc}")
+        return EXIT_ABORTED
+    except (MemoryError, RecursionError):
+        _complain("error: the input is too large or too deeply nested to handle")
         return EXIT_ABORTED
     except KeyboardInterrupt:
         return EXIT_ABORTED
     except Exception:  # Python's own exit code 1 would read as a failed unit.
         traceback.print_exc()
-        print("error: internal error in benchrun; this says nothing about the unit", file=sys.stderr)
+        _complain("error: internal error in benchrun; this says nothing about the unit")
         return EXIT_ABORTED

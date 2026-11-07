@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Tuple
 
 # Quantities a driver can report. A plan's declared units must share the base.
-BASE_UNITS = ("V", "Vpp", "Vrms", "A", "W", "Hz", "s", "Ohm", "dB", "%", "")
+BASE_UNITS = ("V", "Vpp", "Vrms", "A", "W", "Hz", "s", "Ohm", "F", "H", "S", "dB", "%", "")
 
 _PREFIXES = {
     "p": 1e-12,

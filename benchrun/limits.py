@@ -33,6 +33,8 @@ class Limit:
             return FAIL if self.is_limited else ERROR
         if not self.is_limited:
             return INFO
+        if any(side is not None and not math.isfinite(side) for side in (self.low, self.high)):
+            return FAIL  # Every comparison with NaN is false, which would pass anything.
         if self.low is not None and value < self.low:
             return FAIL
         if self.high is not None and value > self.high:

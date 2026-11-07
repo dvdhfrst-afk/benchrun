@@ -51,12 +51,20 @@ class BadResponse(InstrumentFault):
     """The instrument answered with something that cannot be interpreted."""
 
 
+class CommandRefused(InstrumentFault):
+    """benchrun will not send this: it would not reach the instrument as written."""
+
+
 class ReadingOverload(InstrumentFault):
     """The instrument returned the SCPI overload value (9.9E37)."""
 
 
 class IdentityMismatch(InstrumentFault):
     """The ``*IDN?`` response does not match what the plan expects."""
+
+
+class OperatorUnavailable(BenchrunError):
+    """A plan asks the operator to do something and nobody can answer."""
 
 
 class ScpiErrorReported(InstrumentFault):

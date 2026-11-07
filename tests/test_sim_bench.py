@@ -281,7 +281,7 @@ class Lifecycle(unittest.TestCase):
     def test_ephemeral_ports_never_collide(self):
         with SimBench() as one, SimBench() as two:
             ports = list(one.addresses.values()) + list(two.addresses.values())
-            self.assertEqual(len(set(ports)), 10)
+            self.assertEqual(len(set(ports)), 2 * len(PORT_ORDER))
 
     def test_consecutive_ports_from_a_base(self):
         for _ in range(20):

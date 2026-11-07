@@ -1,0 +1,59 @@
+{
+  "name": "generator-frequency-accuracy",
+  "version": "1.0",
+  "description": "Frequency counter: check a signal generator's frequency at three settings.",
+  "instruments": {
+    "generator": {
+      "driver": "siggen",
+      "address": "127.0.0.1:5029"
+    },
+    "counter": {
+      "driver": "counter",
+      "address": "127.0.0.1:5031"
+    }
+  },
+  "setup": [
+    {
+      "do": "counter.set_gate_time",
+      "seconds": 1.0
+    },
+    {
+      "do": "generator.output_on"
+    }
+  ],
+  "steps": [
+    {
+      "name": "frequency",
+      "sweep": {
+        "var": "hertz",
+        "values": [
+          1000.0,
+          10000.0,
+          100000.0
+        ]
+      },
+      "apply": [
+        {
+          "do": "generator.set_waveform",
+          "shape": "SIN",
+          "hertz": "=hertz",
+          "vpp": 0.1
+        }
+      ],
+      "measure": [
+        {
+          "name": "measured",
+          "read": "counter.measure_frequency",
+          "units": "Hz",
+          "low": "=hertz * 0.999",
+          "high": "=hertz * 1.001"
+        }
+      ]
+    }
+  ],
+  "teardown": [
+    {
+      "do": "generator.output_off"
+    }
+  ]
+}

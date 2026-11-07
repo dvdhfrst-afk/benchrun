@@ -8,6 +8,8 @@ from benchrun.drivers.base import Instrument, action
 class SignalGenerator(Instrument):
     """A function generator using ``FUNC``, ``FREQ``, ``VOLT`` and ``OUTP``."""
 
+    HAS_OUTPUT = True
+
     COMMANDS = {
         **Instrument.COMMANDS,
         "function": "FUNC {shape}",
@@ -15,6 +17,7 @@ class SignalGenerator(Instrument):
         "amplitude": "VOLT {vpp:.12g}",
         "offset": "VOLT:OFFS {offset_v:.12g}",
         "output": "OUTP {state}",
+        "output_state": "OUTP?",
     }
 
     @action
@@ -43,3 +46,4 @@ class SignalGenerator(Instrument):
 
     def safe_state(self) -> None:
         self.output_off()
+        self._confirm_off("output_state")

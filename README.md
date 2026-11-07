@@ -6,13 +6,16 @@ written in JSON (JavaScript Object Notation) against one unit serial number at a
 every measurement in a SQLite database, and writes reports as HTML (HyperText Markup Language),
 CSV (comma-separated values) and JUnit XML (Extensible Markup Language).
 
-It needs Python 3.9 or newer and nothing else. There is no install step, no VISA (Virtual
-Instrument Software Architecture) library and no third-party package.
+It needs Python 3.9 or newer and nothing else: no VISA (Virtual Instrument Software Architecture)
+library and no third-party package. You can run it straight from a clone, or install it to get a
+`benchrun` command.
 
-**What has been tested:** benchrun has only ever been run against its own bundled simulators. It
-has not been run against physical instruments, and no compatibility with any vendor's instrument
-is claimed. The drivers use common SCPI commands; see
-[Pointing it at real instruments](#pointing-it-at-real-instruments) for what that means in practice.
+**What has been tested:** benchrun has only ever been run against its own bundled simulators and
+a small fake instrument used by its tests. It has not been run against physical instruments, and
+no compatibility with any vendor's instrument is claimed. Some drivers were written from published
+manuals; [docs/drivers.md](docs/drivers.md) cites them and says what was not confirmed. See
+[Pointing it at real instruments](#pointing-it-at-real-instruments) and
+[What has and has not been tested](#what-has-and-has-not-been-tested).
 
 ## Why use it instead of a script
 
@@ -24,20 +27,43 @@ is claimed. The drivers use common SCPI commands; see
   response and address, every value with its limits and verdict, the full plan text and its hash.
 - **Plans are checked before the bench is powered.** `validate` reports every typo, unknown method,
   unit mismatch and bad limit at once, with no instruments connected.
-- **The bench is always left safe.** Teardown runs after every outcome, including aborts and
-  Ctrl+C, and supply, load and generator outputs are switched off even if the plan's teardown fails.
+- **The bench is left safe, and it says when it could not be.** Teardown runs after every outcome,
+  including aborts and Ctrl+C. Outputs on supplies, loads, generators and source measure units are
+  then switched off and read back, and switches are opened, even if the plan's teardown failed. If
+  an output cannot be confirmed off, the run ends with a warning naming it.
+  A power cut or a killed process cannot switch anything off; see
+  [What benchrun cannot do](#what-benchrun-cannot-do).
+- **An interrupted run keeps what it measured.** Every measurement is committed as it is taken.
+
+## Install
+
+From a clone, either run it in place with `python -m benchrun`, as every example below does, or
+install it. Inside a virtual environment:
+
+```bash
+python -m pip install .
+```
+
+```bash
+benchrun --version
+```
+
+Then `benchrun` and `python -m benchrun` are the same command. Uninstalling removes the program and
+never touches results databases or reports.
 
 ## Quick start
 
 Everything runs from the repository root. In one terminal, start the simulated bench: a digital
-multimeter (DMM), a power supply, an electronic load, an oscilloscope and a signal generator, wired
-to a simulated 5 V linear regulator as the device under test (DUT).
+multimeter (DMM), a power supply, an electronic load, an oscilloscope, a signal generator, a source
+measure unit, a frequency counter, a switch, an inductance, capacitance and resistance (LCR) meter
+and a three-output supply. The first five are wired to a simulated 5 V linear regulator as the
+device under test (DUT).
 
 ```bash
 python -m benchrun sim
 ```
 
-It listens on 127.0.0.1 only, on ports 5025 to 5029. Leave it running. In a second terminal, check
+It listens on 127.0.0.1 only, on ports 5025 to 5034. Leave it running. In a second terminal, check
 the plan, see that the instruments answer, and test a unit:
 
 ```bash
@@ -52,7 +78,8 @@ python -m benchrun probe examples/regulator_line_load.json
 python -m benchrun run examples/regulator_line_load.json --serial SN-1001 --operator "Operator A" --report-dir reports
 ```
 
-The run prints each instrument's identity, one line per step, and a result:
+The run prints each instrument's identity, one line per step, a result, and the report files it
+wrote. Their names end in the run's start time, so yours will differ:
 
 ```text
 Run 1: serial SN-1001, plan regulator-line-load 1.0
@@ -67,6 +94,9 @@ Run 1: serial SN-1001, plan regulator-line-load 1.0
 [PASS] low_headroom (1 measured, 0 failed)
 [PASS] ripple_rejection (13 measured, 0 failed)
 RESULT: PASS
+Report: reports/run-000001-SN-1001-20261107T172757.html
+Report: reports/run-000001-SN-1001-20261107T172757.csv
+Report: reports/run-000001-SN-1001-20261107T172757.xml
 ```
 
 Results go into `benchrun.sqlite` in the current folder; use `--db` to choose another file. Look
@@ -78,6 +108,12 @@ python -m benchrun history --serial SN-1001
 
 ```bash
 python -m benchrun history --plan regulator-line-load
+```
+
+`show` prints one run, with its failures listed:
+
+```bash
+python -m benchrun show --serial SN-1001
 ```
 
 To see a failing unit, stop the simulators with Ctrl+C and restart them with a bad regulator, then
@@ -100,6 +136,10 @@ python -m benchrun sim --fault dmm:drop:5
 ```bash
 python -m benchrun run examples/regulator_line_load.json --serial SN-1003 --report-dir reports
 ```
+
+That run ends with `RESULT: ABORTED` and exit code 3, and keeps the measurements taken before the
+fault. A simulator with a `drop` or `hang` fault stays that way, so stop it with Ctrl+C when you are
+done.
 
 ### Without a second terminal
 
@@ -127,7 +167,7 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-2003 --sim 
 | 2 | Bad plan or bad arguments, or `report` found no such run; no run was recorded |
 | 3 | Run aborted, an instrument could not be reached, or the database or a report file could not be used |
 
-Code 3 wins over the verdict if a report cannot be written after the run: the printed `RESULT` line
+An error message and these codes are all a user error produces; a stack trace is a bug. Code 3 wins over the verdict if a report cannot be written after the run: the printed `RESULT` line
 and the database still hold the verdict. `history` with no matches prints that and exits 0.
 
 ## How a run is judged
@@ -141,11 +181,15 @@ and the database still hold the verdict. `history` with no matches prints that a
 
 Aborted outranks failed, because an aborted run was not completed. A few cases worth knowing:
 
+- A run limited with `--step` is marked as partial. Its verdict is about those steps only, and it is
+  left out of yield and statistics.
+
 - Limits are inclusive, and either side may be left out.
 - A measurement with no limits is recorded with the verdict `info` and cannot fail a unit.
 - A reading past the instrument's range (the SCPI overload value 9.9E37) is a `fail` for the unit,
   not an abort: the instrument is working, and the signal is out of range.
-- A calculation with no answer, such as a ratio dividing by a dead output, is also a `fail`.
+- A calculation with no answer, such as a ratio dividing by a dead output, is also a `fail`, and so
+  is a limit worked out from a value that has no answer.
 - Steps that were never reached are recorded as `skipped`, so a report always shows the whole plan.
 
 ## Test plans
@@ -186,17 +230,38 @@ declared as `"units": "mA"` is recorded and limit-checked as 3.1.
 python -m benchrun drivers
 ```
 
+`init` writes a starter plan to edit:
+
+```bash
+python -m benchrun init my_plan.json
+```
+
 To check a plan you are writing:
 
 ```bash
 python -m benchrun validate my_plan.json
 ```
 
-Override a variable for one run with `--set`, for example to test a 3.3 V part with the same plan:
+Override a variable for one run with `--set`, for example to test a 3.3 V part with the same plan.
+The starter plan's limits follow `vnom`, and on the simulated 5 V part this one fails, as it should:
 
 ```bash
-python -m benchrun run my_plan.json --serial SN-3001 --set vnom=3.3
+python -m benchrun run my_plan.json --serial SN-3001 --sim --set vnom=3.3
 ```
+
+Other options on `run`:
+
+| Option | What it does |
+|---|---|
+| `--note TEXT` | One line kept with the run, such as why it is being retested |
+| `--step NAME` | Run only this step, plus the plan's `setup` and `teardown`; repeatable. Marks the run as partial |
+| `--verbose` | Print every measurement as it is taken |
+| `--auto-confirm` | Carry on past operator prompts without waiting, for scripts |
+| `--scpi-log FILE` | Add all SCPI traffic to this file; earlier contents are kept |
+
+A plan can stop for the operator with `{ "prompt": "Seat the unit and close the lid" }`. With no one
+to answer, the run aborts and says to use `--auto-confirm`.
+[examples/README.md](examples/README.md) lists the example plans.
 
 ## Reports and history
 
@@ -216,6 +281,24 @@ python -m benchrun report --run 3 --format junit --out reports
   such as a skipped one, gets one row with the measurement columns empty.
 - **JUnit XML** has one test case per measurement. Failures and aborts show as `failure` and
   `error`, and traceability data is in the suite's properties.
+
+Report files are named `run-000012-SERIAL-20261107T101500.html`, using the run's start time in
+UTC (Coordinated Universal Time) and the serial with anything unsafe in a file name replaced. They
+are written to a temporary file first and then moved into place, so a report is either complete or
+absent. [examples/sample_output](examples/sample_output) has one of each from a real run on the
+simulators.
+
+`export` writes many runs into one CSV file, and will not replace a file without `--force`. Text
+cells that a spreadsheet would treat as a formula, such as a serial starting with `=`, get a leading
+apostrophe:
+
+```bash
+python -m benchrun export --out line-load.csv --plan regulator-line-load --since 2026-01-01
+```
+
+`history` can also filter by `--status`, `--since`, `--until` and `--instrument`. `--instrument`
+matches any part of an instrument's `*IDN?` response, so it finds every run made with one instrument
+serial number.
 
 `history --plan` adds first-pass yield (each serial counted once, on its first run that reached a
 verdict; aborted runs say nothing about a unit). `--stats` adds per-measurement statistics, including
@@ -248,14 +331,16 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-4001 --stat
 python -m benchrun run examples/regulator_quick.json --serial SN-4002 --address supply=192.0.2.11:5025 --address dmm=192.0.2.13:5025
 ```
 
-A station file maps instrument names to `host:port`; see
-[examples/station_example.json](examples/station_example.json). A key can also be a driver name,
+The addresses in the first and third of these are placeholders, and `my_station.json` is your own
+file, so as written they end in a clear connection error. A station file maps instrument names to
+`host:port`; see [examples/station_example.json](examples/station_example.json). A key can also be a driver name,
 which covers every instrument using that driver. It can describe more than a plan uses, and any
 name that matches nothing is pointed out when you run. If the port is left out, 5025 is used. Run
 `probe` first: it connects to each instrument, shows its `*IDN?` response and changes no settings.
 
 **This path has not been exercised on physical hardware.** The simulators implement the commands
-the drivers send, and those are widely used SCPI forms, but instruments differ. Expect to check:
+the drivers send, and the manuals behind them are cited in [docs/drivers.md](docs/drivers.md), but
+instruments differ and neither of those is a test. Expect to check:
 
 - Whether your instrument listens on a raw SCPI socket, and on which port.
 - Whether its dialect matches. To see what each driver sends:
@@ -276,8 +361,9 @@ the drivers send, and those are widely used SCPI forms, but instruments differ. 
   ```
 
 - Whether responses are plain numbers. A reply with a unit attached, such as `5.000V`, aborts the
-  run rather than being guessed at, and so does an error query that does not answer in the form
-  `0,"No error"`. Neither form can be changed from a plan.
+  run rather than being guessed at, unless the instrument's `reply_pattern` in the plan says where
+  the number is. An error query that does not answer in the form `0,"No error"` also aborts the run.
+  That form cannot be changed from a plan, but the query can, through the `next_error` command.
 - Which status bit your supply uses for constant current. `current_limited` reads bit 10 of
   `STAT:OPER:COND?`. With the wrong bit it always reads 0, and a limit on it proves nothing. Set the
   right one in the same `commands` section, for example `"constant_current_bit": "8"`.
@@ -285,13 +371,62 @@ the drivers send, and those are widely used SCPI forms, but instruments differ. 
   `settle_s` on a step is the wait between applying a stimulus and measuring.
 - Use `"expect_idn"` with a regular expression to refuse the run if the wrong instrument answers.
 
-To talk to an instrument by hand:
+To talk to an instrument by hand, here the simulated multimeter with `sim` running and no fault set:
 
 ```bash
 python -m benchrun scpi 127.0.0.1:5025 "*IDN?" "SYST:ERR?"
 ```
 
-To see all traffic from a run, add `--scpi-log traffic.scpi.log` to `run`.
+To see all traffic from a run, add `--scpi-log traffic.scpi.log` to `run`. If something goes wrong,
+[docs/troubleshooting.md](docs/troubleshooting.md) goes through what each message means.
+
+## What benchrun cannot do
+
+- **It cannot switch anything off once it is gone.** Ctrl+C, closing the window and a service stop
+  all switch outputs off first. A power cut, a killed process, a crash of the machine or a lost
+  network cable cannot: the instrument keeps doing what it was last told, which may be an energized
+  output. If that could hurt anyone or anything, use a hardware interlock, or the instrument's own
+  protection or watchdog. Software on another machine is not a safety system.
+- **Its safe state knows only what it was told.** Drivers switch off their own outputs. The `scpi`
+  driver has no idea what its commands do, so put switch-off commands in the plan's `teardown`. On
+  a switch or multi-output supply, anything closed or turned on through raw `write` needs the
+  `open_all` or `all_off` command set.
+- **It talks SCPI over raw TCP only.** No GPIB (General Purpose Interface Bus), USB (Universal Serial
+  Bus), serial or VXI-11 (the VME eXtensions for Instrumentation LAN protocol). A gateway that gives
+  a raw socket will do.
+- **The network is not protected.** SCPI over TCP has no login and no encryption, so keep instruments
+  on a bench network you trust. See [SECURITY.md](SECURITY.md).
+- **Results are not tamper-proof.** The hash in each run shows which plan ran. It does not prove that
+  the database has not been edited.
+
+## What has and has not been tested
+
+| | Status |
+|---|---|
+| Physical instruments of any kind | **Never.** No driver has met the instrument it was written for |
+| Bundled simulators | Every driver, example and failure mode in the test suite |
+| Real sockets to a separate process | Timeouts, late, partial, garbled and flooded replies, dropped connections, a process dying mid-run, wrong identity, outputs that refuse to go off, stopping a run by signal |
+| Python | Full suite on 3.9 and 3.12 on Windows, and on 3.9 and 3.14 on Linux. Other versions not run |
+| Operating systems | Windows 11, and Linux (Debian-based Python 3.9 container as a non-root user; Ubuntu under WSL, the Windows Subsystem for Linux, as root) |
+| macOS | Not run; no reason known why it would differ from Linux |
+| More than one benchrun on one database | Six processes at once on one file, nothing lost. Each waits up to 30 seconds for the others |
+| Scale | 2,000 simulated units in a row on one database: 1,760 pass, 160 fail and 80 aborted, each as expected, with the supply off after every one and no run left open. One plan with a sweep of 100,000 points, the most allowed |
+
+What those two runs measured, on Windows 11 with Python 3.9, with simulators on the same machine and
+other work running at the same time. They measure benchrun and SQLite, not a bench: real instruments
+are far slower than simulators. Run [tests/soak.py](tests/soak.py) to get your own.
+
+| Measured | 2,000 units | 100,000-point sweep |
+|---|---|---|
+| Measurements recorded | 194,880 | 100,001 |
+| Total time | 1,437 s (719 ms per unit, including starting simulators) | 634 s (about 6 ms per point, including reports) |
+| Database size | 37.1 MB | 12.7 MB |
+| `history --serial` | 6 ms | |
+| `history --plan --stats` | 1.7 s | 1.9 s, printing 9 MB |
+| `show --latest` | 103 ms | 1.2 s |
+| HTML, CSV and XML report sizes | | 26.9, 13.6 and 7.8 MB |
+
+The time per measurement in a long sweep is mostly the commit that keeps it safe from a crash.
 
 ## The simulators
 
@@ -305,9 +440,9 @@ it off.
 | Option | Choices |
 |---|---|
 | `--dut` | `good`, `high-output`, `poor-line`, `poor-load`, `high-dropout`, `high-iq`, `poor-psrr`, `dead` |
-| `--fault` | `instrument:kind[:after]`; instruments `dmm`, `psu`, `eload`, `scope`, `siggen`; kinds `drop`, `hang`, `error`, `garbage`, `overload` (`siggen` takes only the first three) |
+| `--fault` | `instrument:kind[:after]`; instruments `dmm`, `psu`, `eload`, `scope`, `siggen`, `smu`, `counter`, `switch`, `lcr`, `psu_multi`; kinds `drop`, `hang`, `error`, `garbage`, `overload` (`siggen` and `switch` take only the first three) |
 
-Use `--base-port` if ports 5025 to 5029 are taken. `--base-port 0` takes any free ports, and
+Use `--base-port` if ports 5025 to 5034 are taken. `--base-port 0` takes any free ports, and
 `--write-addresses FILE` records them in a file you can pass to `--station`.
 [docs/simulators.md](docs/simulators.md) has the equations.
 
@@ -319,11 +454,11 @@ Use `--base-port` if ports 5025 to 5029 are taken. `--base-port 0` takes any fre
 | `benchrun/drivers/` | Instrument base class and one driver per instrument type |
 | `benchrun/plan.py`, `expr.py`, `units.py`, `limits.py` | Plan validation, expressions, units, verdicts |
 | `benchrun/runner.py` | Executes a plan and decides the result |
-| `benchrun/store.py` | SQLite schema, recording and queries |
+| `benchrun/store.py` | SQLite schema, upgrades of older databases, recording and queries |
 | `benchrun/reports/` | HTML, CSV and JUnit XML writers |
 | `benchrun/sim/` | SCPI parser, instruments, regulator model and socket server |
 | `benchrun/cli.py` | Command line |
-| `tests/` | Standard library `unittest` suite |
+| `tests/` | Standard library `unittest` suite, the fake instrument and `soak.py` |
 
 ## Checks
 
@@ -343,6 +478,11 @@ Tests use ephemeral ports on 127.0.0.1, so they can run while `sim` is up. One f
 ([tests/fixtures/verdict_expected.json](tests/fixtures/verdict_expected.json)) holds results worked
 out from the model equations separately from the code, including units that must fail and runs that
 must abort; `tests/test_verdict_fixture.py` compares the real command line's database against it.
+[docs/ci.md](docs/ci.md) has a job definition to copy into a continuous integration system.
+
+## More
+
+[CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md).
 
 ## License
 

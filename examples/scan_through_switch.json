@@ -1,0 +1,77 @@
+{
+  "name": "scan-through-switch",
+  "version": "1.0",
+  "description": "Multiplexer: one multimeter reads the input and the output of a regulator in turn.",
+  "instruments": {
+    "supply": {
+      "driver": "psu",
+      "address": "127.0.0.1:5026"
+    },
+    "dmm": {
+      "driver": "dmm",
+      "address": "127.0.0.1:5025"
+    },
+    "mux": {
+      "driver": "switch",
+      "address": "127.0.0.1:5032"
+    }
+  },
+  "setup": [
+    {
+      "do": "supply.set_current_limit",
+      "amps": 0.5
+    },
+    {
+      "do": "supply.set_voltage",
+      "volts": 12.0
+    },
+    {
+      "do": "supply.output_on"
+    }
+  ],
+  "steps": [
+    {
+      "name": "input_rail",
+      "setup": [
+        {
+          "do": "mux.close_only",
+          "channel": 102
+        }
+      ],
+      "settle_s": 0.01,
+      "measure": [
+        {
+          "name": "vin",
+          "read": "dmm.measure_dc_voltage",
+          "units": "V",
+          "low": 11.8,
+          "high": 12.2
+        }
+      ]
+    },
+    {
+      "name": "output_rail",
+      "setup": [
+        {
+          "do": "mux.close_only",
+          "channel": 101
+        }
+      ],
+      "settle_s": 0.01,
+      "measure": [
+        {
+          "name": "vout",
+          "read": "dmm.measure_dc_voltage",
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1
+        }
+      ]
+    }
+  ],
+  "teardown": [
+    {
+      "do": "supply.output_off"
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "name": "resistor-iv-curve",
+  "version": "1.0",
+  "description": "Source measure unit: force volts across a resistor, measure current, work out resistance.",
+  "vars": {
+    "rnom": 10000.0,
+    "tolerance": 0.01
+  },
+  "instruments": {
+    "smu": {
+      "driver": "smu",
+      "address": "127.0.0.1:5030"
+    }
+  },
+  "setup": [
+    {
+      "do": "smu.source_voltage",
+      "volts": 0.0,
+      "current_limit_a": 0.01
+    },
+    {
+      "do": "smu.output_on"
+    }
+  ],
+  "steps": [
+    {
+      "name": "iv_curve",
+      "sweep": {
+        "var": "volts",
+        "start": 1.0,
+        "stop": 10.0,
+        "step": 1.0
+      },
+      "apply": [
+        {
+          "do": "smu.source_voltage",
+          "volts": "=volts",
+          "current_limit_a": 0.01
+        }
+      ],
+      "settle_s": 0.01,
+      "measure": [
+        {
+          "name": "amps",
+          "read": "smu.measure_current",
+          "units": "A"
+        },
+        {
+          "name": "at_limit",
+          "read": "smu.at_limit",
+          "high": 0
+        },
+        {
+          "name": "ohms",
+          "calc": "volts / amps",
+          "units": "Ohm",
+          "low": "=rnom * (1 - tolerance)",
+          "high": "=rnom * (1 + tolerance)"
+        }
+      ],
+      "summary": [
+        {
+          "name": "worst_ohms",
+          "calc": "max(ohms)",
+          "units": "Ohm",
+          "high": "=rnom * (1 + tolerance)"
+        }
+      ]
+    }
+  ],
+  "teardown": [
+    {
+      "do": "smu.output_off"
+    }
+  ]
+}

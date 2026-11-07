@@ -13,7 +13,7 @@ from benchrun.reports.csv_report import COLUMNS, render_csv
 from benchrun.reports.html_report import render_html
 from benchrun.reports.junit_report import render_junit
 from benchrun.sim.instruments import Fault
-from benchrun.store import Store
+from benchrun.store import SCHEMA_VERSION, Store
 from tests.support import BenchTestCase, base_plan
 
 
@@ -36,7 +36,7 @@ def add_values(store, run_id, values, low=None, high=None, step="s", point=None)
 
 class Schema(BenchTestCase):
     def test_schema_version_is_set(self):
-        self.assertEqual(self.store.conn.execute("PRAGMA user_version").fetchone()[0], 1)
+        self.assertEqual(self.store.conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
 
     def test_reopening_keeps_the_data(self):
         new_run(self.store)

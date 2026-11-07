@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from benchrun.errors import (
     BadResponse,
+    CommandRefused,
     InstrumentFault,
     ReadingOverload,
     ResponseTimeout,
@@ -27,6 +28,27 @@ OVERLOAD_THRESHOLD = 9.9e37
 MAX_ERRORS_DRAINED = 32
 
 _ERROR_RE = re.compile(r'^\s*([+-]?\d+)\s*,\s*"?(.*?)"?\s*$')
+# Plain decimal only. float() alone would also take "1_000", "nan" and "infinity".
+MAX_TEMPLATE_CHARS = 1000
+_NUMBER_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
+
+
+def parse_on_off(reply: str) -> Optional[bool]:
+    """Read an output state reply: ``1`` or ``ON`` is True, ``0`` or ``OFF`` is False."""
+    word = reply.strip().strip('"').upper()
+    if word in ("1", "ON", "+1"):
+        return True
+    if word in ("0", "OFF", "+0"):
+        return False
+    return None
+
+
+def whole_number(value: Any, what: str, instrument: str) -> int:
+    """An integer argument such as a channel. 1.5 must not quietly become channel 1."""
+    number = float(value)
+    if number != int(number):
+        raise CommandRefused(f"{what} must be a whole number, got {value!r}", instrument)
+    return int(number)
 
 
 def action(func: Callable) -> Callable:
@@ -65,14 +87,25 @@ class Instrument:
         "reset": "*RST",
         "clear": "*CLS",
         "next_error": "SYST:ERR?",
+        "operation_complete": "*OPC?",
     }
 
-    def __init__(self, transport: Transport, name: str = "instrument", commands: Optional[Mapping[str, str]] = None):
+    # True for an instrument that can drive something, so it has an off state.
+    HAS_OUTPUT = False
+
+    def __init__(
+        self,
+        transport: Transport,
+        name: str = "instrument",
+        commands: Optional[Mapping[str, str]] = None,
+        reply_pattern: Optional[str] = None,
+    ):
         self.transport = transport
         self.name = name
         self.commands: Dict[str, str] = dict(self.COMMANDS)
         if commands:
             self.commands.update(commands)
+        self.reply_pattern = re.compile(reply_pattern) if reply_pattern else None
 
     # Describing what plans can do ----------------------------------------
 
@@ -101,10 +134,19 @@ class Instrument:
         except TypeError as exc:
             return str(exc)
         for name, value in kwargs.items():
-            wants_number = any(word in str(signature.parameters[name].annotation) for word in ("float", "int"))
+            annotation = str(signature.parameters[name].annotation)
+            wants_number = any(word in annotation for word in ("float", "int"))
             is_expression = isinstance(value, str) and value.startswith("=")
-            if wants_number and not is_expression and (isinstance(value, bool) or not isinstance(value, (int, float))):
-                return f"argument {name!r} must be a number or an expression, got {value!r}"
+            if wants_number and not is_expression:
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    return f"argument {name!r} must be a finite number or an expression, got {value!r}"
+                if "int" in annotation and "float" not in annotation and value != int(value):
+                    return f"argument {name!r} must be a whole number, got {value!r}"
+            if "str" in annotation:
+                if not isinstance(value, str):
+                    return f"argument {name!r} must be a string, got {value!r}"
+                if not wants_number and any(ord(ch) < 32 or ord(ch) > 126 for ch in value):
+                    return f"argument {name!r} has a line break, a control character or a non-ASCII character"
         return None
 
     @classmethod
@@ -112,14 +154,29 @@ class Instrument:
         """Explain why a plan's command override is not usable, or return None."""
         if key not in cls.COMMANDS:
             return f"unknown command key {key!r}; available: {', '.join(sorted(cls.COMMANDS))}"
-        allowed = {field for _, field, _, _ in string.Formatter().parse(cls.COMMANDS[key]) if field}
+        if any(ord(ch) < 32 or ord(ch) > 126 for ch in template):
+            return f"template for {key!r} has a line break or a non-ASCII character"
+        samples = {}
+        for _, field, spec, _ in string.Formatter().parse(cls.COMMANDS[key]):
+            if field:
+                samples[field] = 1 if spec == "d" else 1.5 if spec else "X"
+        if len(template) > MAX_TEMPLATE_CHARS:
+            return f"template for {key!r} is longer than {MAX_TEMPLATE_CHARS} characters"
         try:
-            used = {field for _, field, _, _ in string.Formatter().parse(template) if field}
+            pieces = [piece for piece in string.Formatter().parse(template) if piece[1] is not None]
         except ValueError as exc:
             return f"bad template for {key!r}: {exc}"
-        extra = used - allowed
+        for _, field, spec, conversion in pieces:
+            if conversion or "{" in (spec or "") or re.search(r"\d{4,}", spec or ""):
+                return f"template for {key!r} has an unusable format on {{{field}}}; use a plain one such as .6g"
+        used = {piece[1] for piece in pieces}
+        extra = used - set(samples)
         if extra:
-            return f"template for {key!r} uses unknown fields {sorted(extra)}; allowed: {sorted(allowed)}"
+            return f"template for {key!r} uses unknown fields {sorted(extra)}; allowed: {sorted(samples)}"
+        try:
+            template.format(**samples)
+        except (ValueError, KeyError, IndexError, AttributeError, TypeError) as exc:
+            return f"bad template for {key!r}: {exc}"
         return None
 
     # Connection ----------------------------------------------------------
@@ -138,6 +195,35 @@ class Instrument:
     def close(self) -> None:
         self.transport.close()
 
+    def make_safe(self) -> None:
+        """Switch outputs off and confirm it, whatever state the link is in.
+
+        Used only when a run is ending. Data left over from an earlier timeout
+        must not get in the way, and when the link itself has gone, one fresh
+        connection is worth trying because a lost session often leaves the
+        output on. Raises ``InstrumentFault`` if the output cannot be confirmed off.
+        """
+        if not self.HAS_OUTPUT:
+            return
+        try:
+            self.transport.discard_pending()
+            self.safe_state()
+            return
+        except InstrumentFault:
+            self.transport.close()
+        self.connect()
+        self.safe_state()
+
+    def _confirm_off(self, key: str, **fields: Any) -> None:
+        """Ask the instrument whether its output really is off."""
+        query = self._render(key, **fields)
+        reply = self._ask(query)
+        state = parse_on_off(reply)
+        if state is None:
+            raise BadResponse(f"cannot read output state {reply[:80]!r} in response to {query!r}", self.name)
+        if state:
+            raise InstrumentFault(f"output still reads on after being switched off ({query!r} gave {reply[:80]!r})", self.name)
+
     # Raw exchange --------------------------------------------------------
 
     def _render(self, key: str, **fields: Any) -> str:
@@ -145,12 +231,12 @@ class Instrument:
 
     def _send(self, text: str) -> None:
         try:
-            self._guard_stale()
+            self._refuse_stale()
             self.transport.write_line(text)
         except InstrumentFault as exc:
             raise self._tag(exc)
 
-    def _guard_stale(self) -> None:
+    def _refuse_stale(self) -> None:
         """Late or unexpected data would misalign every response that follows."""
         stale = self.transport.discard_pending()
         if stale:
@@ -215,10 +301,15 @@ class Instrument:
         return value
 
     def _parse_number(self, response: str, command: str) -> float:
-        try:
-            value = float(response.strip())
-        except ValueError:
-            raise BadResponse(f"non-numeric response {response[:80]!r} to {command!r}", self.name) from None
+        text = response.strip()
+        if self.reply_pattern is not None:
+            found = self.reply_pattern.search(text)
+            if not found:
+                raise BadResponse(f"response {response[:80]!r} to {command!r} does not fit reply_pattern", self.name)
+            text = found.group(1).strip()
+        if not _NUMBER_RE.match(text):
+            raise BadResponse(f"non-numeric response {response[:80]!r} to {command!r}", self.name)
+        value = float(text)
         if not math.isfinite(value):
             raise BadResponse(f"non-finite response {response[:80]!r} to {command!r}", self.name)
         if abs(value) >= OVERLOAD_THRESHOLD:
@@ -239,10 +330,15 @@ class Instrument:
         self.command("reset")
 
     def safe_state(self) -> None:
-        """Leave the instrument harmless. Run at the end of every run."""
+        """Leave the instrument harmless. A driver with ``HAS_OUTPUT`` must override this."""
 
     def _forget_settings(self) -> None:
         """Raw SCPI can change anything, so a driver must drop what it remembers."""
+
+    @action
+    def wait_complete(self) -> None:
+        """Wait until the instrument has finished what it was told, up to ``timeout_s``."""
+        self.number("operation_complete")
 
     @action
     def write(self, command: str) -> None:

@@ -1,4 +1,8 @@
-"""Digital multimeter driver."""
+"""Digital multimeter driver.
+
+The ``CONFigure`` forms, ``READ?`` and the overload value follow the 34401A User's
+Guide, document 34401-90004 (February 1996). See docs/drivers.md. Never run on the hardware.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +23,10 @@ class Dmm(Instrument):
         "configure_dc_voltage": "CONF:VOLT:DC {range}",
         "configure_dc_current": "CONF:CURR:DC {range}",
         "configure_ac_voltage": "CONF:VOLT:AC {range}",
+        "configure_ac_current": "CONF:CURR:AC {range}",
+        "configure_resistance": "CONF:RES {range}",
+        "configure_resistance_4w": "CONF:FRES {range}",
+        "configure_frequency": "CONF:FREQ",
         "set_voltage_nplc": "VOLT:DC:NPLC {nplc:.12g}",
         "set_current_nplc": "CURR:DC:NPLC {nplc:.12g}",
         "read": "READ?",
@@ -40,7 +48,7 @@ class Dmm(Instrument):
         if self._configured == wanted:
             return
         self._configured = None
-        range_text = "AUTO" if range_value is None else f"{range_value:.12g}"
+        range_text = "DEF" if range_value is None else f"{range_value:.12g}"
         self.command(f"configure_{function}", range=range_text)
         if nplc is not None:
             if function == "dc_voltage":
@@ -65,4 +73,28 @@ class Dmm(Instrument):
     def measure_ac_voltage(self, range_v: Optional[float] = None) -> float:
         """AC volts rms."""
         self._configure("ac_voltage", range_v, None)
+        return self.number("read")
+
+    @reading("A")
+    def measure_ac_current(self, range_a: Optional[float] = None) -> float:
+        """AC amperes rms."""
+        self._configure("ac_current", range_a, None)
+        return self.number("read")
+
+    @reading("Ohm")
+    def measure_resistance(self, range_ohm: Optional[float] = None) -> float:
+        """Two-wire resistance. The test leads are included in the reading."""
+        self._configure("resistance", range_ohm, None)
+        return self.number("read")
+
+    @reading("Ohm")
+    def measure_resistance_4w(self, range_ohm: Optional[float] = None) -> float:
+        """Four-wire resistance, which leaves the leads out."""
+        self._configure("resistance_4w", range_ohm, None)
+        return self.number("read")
+
+    @reading("Hz")
+    def measure_frequency(self) -> float:
+        """Frequency of the AC signal on the voltage input. With no signal the instrument reads 0."""
+        self._configure("frequency", None, None)
         return self.number("read")
