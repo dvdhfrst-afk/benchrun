@@ -347,6 +347,34 @@ class StoppedFromOutside(SocketCase):
         time.sleep(0.7)
         return process, supply_log
 
+    @unittest.skipUnless(os.name == "nt", "a Windows console")
+    def test_closing_the_console_window_switches_off_and_records(self):
+        supply, supply_log = self.fake("supply")
+        dmm, _ = self.fake("dmm")
+        args = self.command(small_plan(settle_s=0.2, points=200), {"supply": supply, "dmm": dmm})
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = 0  # Hidden, in a console of its own.
+        process = subprocess.Popen(
+            args, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=startup,
+        )  # fmt: skip
+        self.addCleanup(process.wait)
+        self.addCleanup(process.kill)
+        deadline = time.monotonic() + 30
+        while "OUTPUT on" not in self.journal(supply_log) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.5)
+        closer = (
+            "import ctypes; k = ctypes.windll.kernel32; k.FreeConsole(); k.AttachConsole(%d); "
+            "ctypes.windll.user32.PostMessageW(k.GetConsoleWindow(), 0x10, 0, 0)" % process.pid
+        )
+        subprocess.run([sys.executable, "-c", closer], timeout=30)  # It goes down with the console.
+        process.wait(timeout=30)
+        self.assertOutputOff(supply_log)
+        self.assertEqual(self.record()["status"], "aborted")
+        self.assertIn("interrupted", self.record()["reason"])
+
     def test_stop_request_switches_off_and_records(self):
         process, supply_log = self.start_slow_run()
         process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM)

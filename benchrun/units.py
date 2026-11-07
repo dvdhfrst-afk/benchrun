@@ -45,4 +45,5 @@ def convert(value: float, from_unit: str, to_unit: str) -> float:
         raise ValueError(f"cannot convert {from_unit!r} to {to_unit!r}")
     if from_scale == to_scale:
         return value
-    return value * from_scale / to_scale
+    # 0.0009 A in mA comes out as 0.8999999999999999 otherwise, and that would fail a limit of 0.9.
+    return float(f"{value * from_scale / to_scale:.15g}")

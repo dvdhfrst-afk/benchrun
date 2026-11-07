@@ -12,6 +12,11 @@ INFO = "info"  # Recorded for traceability; carries no limits, cannot fail a uni
 ERROR = "error"  # The measurement could not be taken.
 
 
+def _digits(value: float) -> float:
+    """Compare at 15 significant digits, so that the last bits of binary arithmetic cannot decide a verdict."""
+    return float(f"{value:.15g}")
+
+
 @dataclass(frozen=True)
 class Limit:
     """Inclusive limits. Either side may be absent for a one-sided test."""
@@ -35,9 +40,9 @@ class Limit:
             return INFO
         if any(side is not None and not math.isfinite(side) for side in (self.low, self.high)):
             return FAIL  # Every comparison with NaN is false, which would pass anything.
-        if self.low is not None and value < self.low:
+        if self.low is not None and _digits(value) < _digits(self.low):
             return FAIL
-        if self.high is not None and value > self.high:
+        if self.high is not None and _digits(value) > _digits(self.high):
             return FAIL
         return PASS
 

@@ -27,7 +27,7 @@ from benchrun.drivers.base import Instrument
 from benchrun.errors import ExpressionError, IdentityMismatch, InstrumentFault, OperatorUnavailable, ReadingOverload
 from benchrun.expr import Expression
 from benchrun.limits import ERROR, FAIL, PASS, Limit
-from benchrun.plan import MAX_WAIT_S, Call, Measure, Plan, Step, resolve
+from benchrun.plan import MAX_WAIT_S, Call, Measure, Plan, Step, resolve, safety_notes
 from benchrun.store import Store
 from benchrun.transport import LoggingTransport, TcpTransport, Transport, parse_address
 from benchrun.units import convert
@@ -109,6 +109,7 @@ class Runner:
         self.instruments: Dict[str, Instrument] = {}  # Identified, so safe to command.
         self._opened: List[Instrument] = []  # Everything with a socket to close.
         self._made_safe = False
+        self.past_saving = False  # True once the bench is safe and only recording is left.
         self.unsafe: List[str] = []
         self.database_problem: Optional[str] = None
         self.run_id = -1
@@ -140,6 +141,31 @@ class Runner:
         reason: Optional[str] = None
         skip_message = "not run: an earlier step failed with stop_on_fail set"
         try:
+            reason = self._run_everything(setup_id, step_ids, teardown_id)
+        except KeyboardInterrupt:  # After teardown; the bench is safe, and the result must still be saved.
+            reason = "interrupted by the operator"
+        self.past_saving = True
+
+        if reason is not None:
+            skip_message = f"not run: {reason}"
+        self._recording(self.store.skip_pending_steps, self.run_id, skip_message)
+        status, reason = self._decide(reason)
+        self._recording(self.store.finish_run, self.run_id, status, reason)
+        self.console(f"RESULT: {status.upper()}" + (f" ({reason})" if reason else ""))
+        if self.unsafe:
+            self.console(
+                f"WARNING: could not confirm these are off: {', '.join(self.unsafe)}. "
+                "Check them by hand before touching the bench."
+            )
+        for note in safety_notes(plan):
+            self.console(f"NOTE: {note}")
+        return RunResult(self.run_id, status, reason, self.failed, self.passed, list(self.unsafe), self.database_problem)
+
+    def _run_everything(self, setup_id: int, step_ids: List[int], teardown_id: int) -> Optional[str]:
+        """Setup, steps and teardown, with the bench safe at the end. Returns why the run stopped, if it did."""
+        plan = self.plan
+        reason: Optional[str] = None
+        try:
             try:
                 self._run_setup(setup_id)
                 for step, step_id in zip(plan.steps, step_ids):
@@ -168,19 +194,7 @@ class Runner:
             if not self._made_safe:
                 self._make_all_safe([])
             self._close_instruments()
-
-        if reason is not None:
-            skip_message = f"not run: {reason}"
-        self._recording(self.store.skip_pending_steps, self.run_id, skip_message)
-        status, reason = self._decide(reason)
-        self._recording(self.store.finish_run, self.run_id, status, reason)
-        self.console(f"RESULT: {status.upper()}" + (f" ({reason})" if reason else ""))
-        if self.unsafe:
-            self.console(
-                f"WARNING: could not confirm these are off: {', '.join(self.unsafe)}. "
-                "Check them by hand before touching the bench."
-            )
-        return RunResult(self.run_id, status, reason, self.failed, self.passed, list(self.unsafe), self.database_problem)
+        return reason
 
     def _decide(self, reason: Optional[str]):
         if reason is None and self.database_problem is not None:

@@ -1,6 +1,5 @@
 """Units, limits and the expression language."""
 
-import math
 import unittest
 
 from benchrun.errors import ExpressionError
@@ -54,7 +53,7 @@ class Limits(unittest.TestCase):
         self.assertEqual(Limit(1, 2).evaluate(2.0), PASS)
 
     def test_just_outside(self):
-        self.assertEqual(Limit(1, 2).evaluate(math.nextafter(1.0, 0.0) if hasattr(math, "nextafter") else 0.9999999), FAIL)
+        self.assertEqual(Limit(1, 2).evaluate(0.99999999999), FAIL)
         self.assertEqual(Limit(1, 2).evaluate(2.0000001), FAIL)
 
     def test_one_sided(self):

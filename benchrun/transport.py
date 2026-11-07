@@ -93,7 +93,7 @@ class TcpTransport(Transport):
         self.close()
         try:
             self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:  # UnicodeError: a host name that cannot be a host name.
             raise ConnectionLost(f"cannot connect to {self.description}: {exc}") from exc
         self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 

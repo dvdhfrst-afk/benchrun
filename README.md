@@ -164,7 +164,7 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-2003 --sim 
 |---|---|
 | 0 | Run passed, or the command succeeded |
 | 1 | Run finished and the unit failed |
-| 2 | Bad plan or bad arguments, or `report` found no such run; no run was recorded |
+| 2 | Bad plan or bad arguments, or nothing to read: no such run or database for `report`, `show`, `export` or `history`. No run was recorded |
 | 3 | Run aborted, an instrument could not be reached, or the database or a report file could not be used |
 
 An error message and these codes are all a user error produces; a stack trace is a bug. Code 3 wins over the verdict if a report cannot be written after the run: the printed `RESULT` line
@@ -332,8 +332,9 @@ python -m benchrun run examples/regulator_quick.json --serial SN-4002 --address 
 ```
 
 The addresses in the first and third of these are placeholders, and `my_station.json` is your own
-file, so as written they end in a clear connection error. A station file maps instrument names to
-`host:port`; see [examples/station_example.json](examples/station_example.json). A key can also be a driver name,
+file, so as written they end in a clear connection error. A station file looks like
+`{"addresses": {"supply": "192.0.2.11:5025"}}`; see
+[examples/station_example.json](examples/station_example.json). A key under `addresses` can also be a driver name,
 which covers every instrument using that driver. It can describe more than a plan uses, and any
 name that matches nothing is pointed out when you run. If the port is left out, 5025 is used. Run
 `probe` first: it connects to each instrument, shows its `*IDN?` response and changes no settings.
@@ -383,14 +384,16 @@ To see all traffic from a run, add `--scpi-log traffic.scpi.log` to `run`. If so
 ## What benchrun cannot do
 
 - **It cannot switch anything off once it is gone.** Ctrl+C, closing the window and a service stop
-  all switch outputs off first. A power cut, a killed process, a crash of the machine or a lost
+  all switch outputs off first. On Windows, closing the window allows about 5 seconds, so an instrument
+  that has stopped answering can use up that time. A power cut, a killed process, a crash of the machine or a lost
   network cable cannot: the instrument keeps doing what it was last told, which may be an energized
   output. If that could hurt anyone or anything, use a hardware interlock, or the instrument's own
   protection or watchdog. Software on another machine is not a safety system.
 - **Its safe state knows only what it was told.** Drivers switch off their own outputs. The `scpi`
   driver has no idea what its commands do, so put switch-off commands in the plan's `teardown`. On
   a switch or multi-output supply, anything closed or turned on through raw `write` needs the
-  `open_all` or `all_off` command set.
+  `open_all` or `all_off` command set. `validate` and the end of each run print a note about these
+  cases, but nothing can check them.
 - **It talks SCPI over raw TCP only.** No GPIB (General Purpose Interface Bus), USB (Universal Serial
   Bus), serial or VXI-11 (the VME eXtensions for Instrumentation LAN protocol). A gateway that gives
   a raw socket will do.

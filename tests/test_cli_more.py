@@ -18,14 +18,18 @@ from unittest import mock
 import benchrun
 from benchrun.cli import EXIT_ABORTED, EXIT_FAIL, EXIT_PASS, EXIT_USAGE, build_parser, main
 from benchrun.drivers import DRIVERS
+from benchrun.drivers.dmm import Dmm
 from benchrun.drivers.psu import PowerSupply
+from benchrun.errors import BadResponse
 from benchrun.files import atomic_write_text
+from benchrun.limits import Limit
 from benchrun.reports.csv_report import COLUMNS
 from benchrun.runner import Runner
 from benchrun.sim.bench import PORT_ORDER
 from benchrun.sim.instruments import Fault
 from benchrun.store import Store
-from tests.support import BenchTestCase, all_measurements, base_plan, clone
+from benchrun.units import convert
+from tests.support import BenchTestCase, FakeTransport, all_measurements, base_plan, clone
 
 ROOT = Path(__file__).parent.parent
 EXAMPLES = ROOT / "examples"
@@ -259,6 +263,66 @@ class SharedDatabase(Case):
             _, err = process.communicate(timeout=60)
             self.assertEqual(process.returncode, 0, err)
         self.assertEqual(subprocess.run(args, cwd=ROOT, capture_output=True, timeout=60).returncode, EXIT_PASS)
+
+
+class Rounding(unittest.TestCase):
+    def test_a_reading_on_a_limit_after_a_unit_change_passes(self):
+        self.assertEqual(convert(0.0009, "A", "mA"), 0.9)
+        self.assertEqual(convert(0.0031, "A", "mA"), 3.1)
+        for milliamps in range(1, 3000):
+            amps = float(f"{milliamps / 1000 / 1000:.6e}")
+            self.assertEqual(Limit(milliamps / 1000, milliamps / 1000).evaluate(convert(amps, "A", "mA")), "pass", amps)
+
+    def test_a_limit_worked_out_in_binary_still_means_what_it_says(self):
+        self.assertEqual(Limit(low=0.1 + 0.2).evaluate(0.3), "pass")
+        self.assertEqual(Limit(high=0.3).evaluate(0.1 + 0.2), "pass")
+
+    def test_a_real_difference_still_fails(self):
+        self.assertEqual(Limit(high=5.0).evaluate(5.00000000001), "fail")
+        self.assertEqual(Limit(low=5.0).evaluate(4.99999999999), "fail")
+        self.assertEqual(Limit(high=1e-12).evaluate(1.00000000001e-12), "fail")
+
+
+class ReplyPattern(unittest.TestCase):
+    def meter(self, *replies):
+        return Dmm(FakeTransport(list(replies)), "x", None, r"([-+.0-9eE]+) V")
+
+    def test_it_reads_what_it_describes(self):
+        self.assertEqual(self.meter("5.000 V").measure_dc_voltage(), 5.0)
+
+    def test_a_comma_or_a_space_or_another_unit_cannot_become_a_wrong_number(self):
+        for reply in ("0,500 V", "12 345 V", "1000.0 mV", "5.000 V extra"):
+            with self.subTest(reply=reply), self.assertRaises(BadResponse):
+                self.meter(reply).measure_dc_voltage()
+
+    def test_plain_numbers_and_status_queries_still_work(self):
+        self.assertEqual(self.meter("5.0").measure_dc_voltage(), 5.0)
+        meter = self.meter("1")
+        meter.wait_complete()
+
+
+class SafetyNotes(Case):
+    def write_plan(self, driver, commands=None):
+        data = {
+            "name": "notes",
+            "instruments": {"x": {"driver": driver, "address": "127.0.0.1:1", "commands": commands or {}}},
+            "steps": [{"name": "one", "setup": [{"do": "x.write", "command": "OUTP ON"}], "measure": [{"name": "m", "calc": "1", "high": 2}]}],
+        }
+        path = self.folder / "notes.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_validate_says_what_the_switch_off_cannot_cover(self):
+        for driver, word in (("scpi", "scpi driver"), ("switch", "open_all"), ("psu_multi", "all_off")):
+            code, out, _ = call("validate", self.write_plan(driver))
+            self.assertEqual(code, EXIT_PASS)
+            self.assertIn(word, out)
+
+    def test_no_note_when_it_is_covered(self):
+        _, out, _ = call("validate", self.write_plan("switch", {"open_all": "ROUT:OPEN (@101:120)"}))
+        self.assertNotIn("Note:", out)
+        _, out, _ = call("validate", self.write_plan("psu"))
+        self.assertNotIn("Note:", out)
 
 
 class HelpAndVersion(Case):

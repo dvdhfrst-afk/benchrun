@@ -632,8 +632,17 @@ def _decode_json(text: str) -> Any:
     return json.loads(text, object_pairs_hook=_no_repeats, parse_constant=_no_constants)
 
 
+def _no_broken_text(data: Any) -> None:
+    """JSON can spell half of a character, such as ``\\ud800``, which nothing can store or print."""
+    try:
+        json.dumps(data, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise PlanError(["plan has text with a broken character, written as a lone \\ud... escape"]) from exc
+
+
 def parse_plan(data: Any, source_text: str = "", variables: Optional[Mapping[str, float]] = None) -> Plan:
     """Build a Plan from decoded JSON. Raises ``PlanError`` listing every problem."""
+    _no_broken_text(data)
     parser = _Parser(variables)
     plan = parser.parse(data, source_text or json.dumps(data, sort_keys=True))
     if parser.problems:
@@ -707,6 +716,25 @@ def match_station(plan: Plan, station: Mapping[str, str]) -> Tuple[Dict[str, str
         if spec.name not in station and spec.driver in station:
             addresses[spec.name] = station[spec.driver]
     return addresses, unused
+
+
+def safety_notes(plan: Plan) -> List[str]:
+    """What the end-of-run switch-off cannot cover in this plan, because only the plan's own commands know."""
+    calls = list(plan.setup) + list(plan.teardown)
+    for step in plan.steps:
+        calls += step.setup + step.apply + step.cleanup
+    written = {call.instrument for call in calls if call.method == "write"}
+    notes = []
+    for name, spec in plan.instruments.items():
+        if name not in written:
+            continue
+        if spec.driver == "scpi":
+            notes.append(f"{name} uses the scpi driver, so benchrun cannot switch it off or check it; only the plan's teardown can.")
+        elif spec.driver == "switch" and not spec.commands.get("open_all"):
+            notes.append(f"{name} gets raw write commands; anything they close is only opened at the end if open_all is set.")
+        elif spec.driver == "psu_multi" and not spec.commands.get("all_off"):
+            notes.append(f"{name} gets raw write commands; anything they turn on only goes off at the end if all_off is set.")
+    return notes
 
 
 def select_steps(plan: Plan, names: Sequence[str]) -> List[str]:

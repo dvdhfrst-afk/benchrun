@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-SKIP_FOLDERS = {".git", "__pycache__", ".venv", "venv"}
+SKIP_FOLDERS = {".git", "__pycache__", ".venv", "venv", "build", "dist"}
 TOP_FOLDERS = ("benchrun", "tests", "docs", "examples")
 TOP_FILES = (
     "README.md", "LICENSE", "pyproject.toml", "check.sh", ".gitignore", ".gitattributes",
@@ -16,7 +16,7 @@ TOP_FILES = (
 )  # fmt: skip
 TEXT_SUFFIXES = {".py", ".md", ".json", ".toml", ".sh", ".txt", ".csv", ".html", ".xml", ""}
 ALLOWED_IMPORTS = {
-    "argparse", "ast", "collections", "contextlib", "copy", "csv", "dataclasses", "datetime", "hashlib", "html",
+    "_thread", "argparse", "ast", "collections", "contextlib", "copy", "csv", "ctypes", "dataclasses", "datetime", "hashlib", "html",
     "inspect", "io", "itertools", "json", "math", "operator", "os", "pathlib", "random", "re", "select", "shutil",
     "shlex", "signal", "socket", "sqlite3", "stat", "string", "subprocess", "sys", "tempfile", "threading", "time", "traceback", "typing", "unittest",
     "xml", "benchrun", "tests", "__future__",

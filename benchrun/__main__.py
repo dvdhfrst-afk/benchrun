@@ -2,7 +2,10 @@
 
 import sys
 
-from benchrun.cli import main
-
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        from benchrun.cli import main
+
+        sys.exit(main())
+    except KeyboardInterrupt:  # Stopped while still starting up, with nothing connected.
+        sys.exit(3)

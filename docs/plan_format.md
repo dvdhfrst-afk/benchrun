@@ -44,7 +44,7 @@ only letters, digits and underscores.
 | `timeout_s` | no | Seconds to wait for a response. Default 5. |
 | `expect_idn` | no | Regular expression searched for in the `*IDN?` response. No match aborts the run. |
 | `commands` | no | Replacement SCPI templates, by the keys that `drivers NAME --commands` lists. On `psu`, the key `constant_current_bit` holds a bit number, not a template. Templates are printable ASCII with only the same field names; a format is limited to plain ones such as `.6g`. |
-| `reply_pattern` | no | Regular expression with one group, for instruments that add text around a number. `"([-+.\\dEe]+)\\s*V"` reads `5.000 V` as 5.000. A reply that does not match aborts the run. |
+| `reply_pattern` | no | Regular expression with one group, for instruments that add text around a number. It must fit the whole reply: `"([-+.0-9eE]+) V"` reads `5.000 V` as 5.000, and `5,000 V` or `5000 mV` abort the run. A reply that is already a plain number is taken as it is, so this does not get in the way of `*OPC?` or status queries, and it is on you that a plain number is in the unit the reading declares. |
 
 At the start of a run each instrument is connected and identified, its response is recorded, and
 then it gets `*CLS` and `*RST`.
@@ -130,7 +130,7 @@ A value calculated from others:
 | `args` | Arguments to the reading. Values may be expressions. |
 | `samples` | Take this many readings and record their mean. Default 1. |
 | `units` | Must be compatible with what the reading returns; values and limits are in these units. For `read` it defaults to the reading's unit. For `calc` it is any label. |
-| `low`, `high` | Inclusive limits, as numbers or expressions. Either may be left out. With neither, the verdict is `info`. |
+| `low`, `high` | Inclusive limits, as numbers or expressions. Either may be left out. With neither, the verdict is `info`. Values and limits are compared at 15 significant digits, so a reading of 0.9 meets a limit of 0.9 however it was worked out. |
 
 Base units are `V`, `Vpp`, `Vrms`, `A`, `W`, `Hz`, `s`, `Ohm`, `F`, `H`, `S`, `dB` and `%`, with prefixes `p`, `n`,
 `u`, `m`, `k`, `M` and `G`. `Vpp` and `Vrms` are different quantities from `V`, and converting

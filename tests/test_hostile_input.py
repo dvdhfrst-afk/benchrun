@@ -115,12 +115,35 @@ class BadFiles(Case):
         self.assertRefused(json.dumps(base_plan()).replace('"vnom": 5.0', '"vnom": 1e999'))
         self.assertRefused(json.dumps(base_plan()).replace('"vnom": 5.0', '"vnom": 1' + "0" * 5000))
 
+    def test_half_a_character_in_a_plan(self):
+        self.assertRefused(json.dumps(base_plan()).replace('"small"', '"sm\\ud800all"'), "broken character")
+
     def test_duplicate_keys_never_drop_a_limit(self):
         text = '{"name": "a", "name": "b", "version": "1", "instruments": {}, "steps": []}'
         self.assertRefused(text, "name")
 
 
 class NonAscii(Case):
+    def test_text_a_terminal_could_not_decode_is_refused_plainly(self):
+        db = self.folder / "r.sqlite"
+        for command in (
+            ("run", QUICK, "--serial", "S\udcff1", "--sim", "--db", db),
+            ("run", QUICK, "--serial", "A", "--note", "\udcc3", "--sim", "--db", db),
+            ("history", "--serial", "S\udcff1", "--db", db),
+            ("show", "--serial", "S\udcff1", "--db", db),
+        ):
+            with self.subTest(command=command[0]):
+                code, out, err = call(*command)
+                self.assertEqual(code, EXIT_USAGE, out + err)
+                self.assertIn("not valid text", err)
+                self.assertNotIn("Traceback", out + err)
+
+    def test_host_name_that_cannot_be_one_is_a_connection_error(self):
+        for host in ("a" * 70 + ".example", "x..y"):
+            code, out, err = call("scpi", f"{host}:5025", "*IDN?", "--timeout", "1")
+            self.assertEqual(code, 3, out + err)
+            self.assertNotIn("Traceback", out + err)
+
     def test_plan_serial_note_and_operator_survive(self):
         data = json.loads(QUICK.read_text(encoding="utf-8"))
         data["name"] = "r\u00e9gulateur \u7a33\u538b\u5668"

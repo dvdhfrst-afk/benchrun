@@ -25,7 +25,7 @@ python -m benchrun run my_plan.json --serial TEST --station my_station.json --sc
 | `*IDN? returned ..., which does not match` | `expect_idn` did not match what answered. Nothing was commanded. | Fix the address, or the pattern. |
 | `is a SQLite file that benchrun did not create` | `--db` points at someone else's database. It has not been changed. | Choose another file. |
 | `has schema N, newer than` | The database came from a newer benchrun. It has not been changed. | Upgrade benchrun. |
-| `database is locked` | Another process kept it busy for over 30 seconds. | Look for another benchrun or a database viewer holding it open. |
+| `database is locked` | Another process kept it busy for longer than benchrun waits, about 30 seconds a write. The wait itself is silent, so readings can come late while it lasts. | Look for another benchrun or a database viewer holding it open. |
 | `could not confirm these are off` | The run ended, but an output could not be read back as off. | **Check that instrument by hand before touching the bench.** |
 
 ## A run stays `running` in history

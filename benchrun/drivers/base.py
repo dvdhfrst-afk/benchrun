@@ -302,8 +302,10 @@ class Instrument:
 
     def _parse_number(self, response: str, command: str) -> float:
         text = response.strip()
-        if self.reply_pattern is not None:
-            found = self.reply_pattern.search(text)
+        # A plain number is taken as it is: *OPC? and status queries never carry text around it. Anything
+        # else must fit the whole pattern, so that "0,500 V" or "1000 mV" cannot be read as a wrong number.
+        if self.reply_pattern is not None and not _NUMBER_RE.match(text):
+            found = self.reply_pattern.fullmatch(text)
             if not found:
                 raise BadResponse(f"response {response[:80]!r} to {command!r} does not fit reply_pattern", self.name)
             text = found.group(1).strip()

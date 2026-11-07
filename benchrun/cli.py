@@ -12,17 +12,18 @@ import re
 import signal
 import sqlite3
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence
 
 from benchrun import __version__
 from benchrun.drivers import DRIVERS
 from benchrun.errors import BenchrunError, InstrumentFault, OperatorUnavailable, PlanError
 from benchrun.files import atomic_write_text
-from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station, select_steps
+from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station, safety_notes, select_steps
 from benchrun.reports import FORMATS, write_reports
 from benchrun.reports.csv_report import render_many
 from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_transport
@@ -41,6 +42,10 @@ _EXIT_BY_STATUS = {RUN_PASS: EXIT_PASS, RUN_FAIL: EXIT_FAIL, RUN_ABORTED: EXIT_A
 
 _CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 MAX_TEXT_CHARS = 2000
+
+
+_WINDOW_GOING_EVENTS = (2, 5, 6)  # Console closed, user logging off, system shutting down.
+_WINDOW_WAIT_S = 4.5
 
 
 def _print_to(stream_name: str, text: str) -> None:
@@ -150,22 +155,56 @@ def _open_store(path: str) -> Store:
     return store
 
 
+def _hold_window_open(finished: threading.Event) -> Callable[[], None]:
+    """On Windows, closing the console reaches no signal handler, and the process ends when this returns.
+
+    So interrupt the run the way Ctrl+C does, and hold the process open while it
+    switches outputs off and records the result. Windows allows about 5 seconds.
+    """
+    if os.name != "nt":
+        return lambda: None
+    import _thread
+    import ctypes
+    from ctypes import wintypes
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)  # type: ignore[attr-defined]
+    def on_console_event(event: int) -> bool:
+        if event not in _WINDOW_GOING_EVENTS:
+            return False  # Ctrl+C and Ctrl+Break go on to Python's own handling.
+        _thread.interrupt_main()
+        finished.wait(_WINDOW_WAIT_S)
+        return True
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32.SetConsoleCtrlHandler(on_console_event, True)
+    return lambda: kernel32.SetConsoleCtrlHandler(on_console_event, False)
+
+
 @contextlib.contextmanager
-def _stop_requests_interrupt() -> Iterator[None]:
-    """A service stop or a closed window then ends a run the way Ctrl+C does: outputs go off first."""
+def _stop_requests_interrupt(past_saving: Callable[[], bool]) -> Iterator[None]:
+    """A service stop or a closed window ends a run the way Ctrl+C does: outputs go off first.
+
+    Once ``past_saving`` says the bench is safe, a stop is held off until the result
+    and the reports are written. Stopping then would only lose them.
+    """
 
     def interrupt(signum: int, frame: Any) -> None:
-        raise KeyboardInterrupt()
+        if not past_saving():
+            raise KeyboardInterrupt()
 
     previous = {}
-    for name in ("SIGTERM", "SIGBREAK", "SIGHUP"):
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"):
         number = getattr(signal, name, None)
         if number is not None:
             with contextlib.suppress(ValueError, OSError):
                 previous[number] = signal.signal(number, interrupt)
+    finished = threading.Event()
+    release_window = _hold_window_open(finished)
     try:
         yield
     finally:
+        finished.set()
+        release_window()
         for number, handler in previous.items():
             signal.signal(number, handler)
 
@@ -290,24 +329,24 @@ def cmd_run(args: argparse.Namespace) -> int:
                 prompt=_confirm_automatically if args.auto_confirm else _ask_operator,
                 verbose=args.verbose,
             )
-            with _stop_requests_interrupt():
+            with _stop_requests_interrupt(lambda: runner.past_saving):
                 result = runner.run()
-            detail = None
-            if result.database_problem is None:
-                detail = store.run_detail(result.run_id)
-        if result.database_problem is not None:
-            _complain(
-                f"error: results database {args.db} failed during the run: {result.database_problem}. "
-                "Whatever reached it before that is still there. No report was written."
-            )
-        elif args.report_dir:
-            try:
-                for path in write_reports(detail, args.report_dir):
-                    _say(f"Report: {path}")
-            except OSError as exc:
-                _complain(f"error: cannot write reports to {args.report_dir}: {exc}")
-                _complain(f"The result of run {result.run_id} is safe in {args.db}; write it later with the report command.")
-                return EXIT_ABORTED
+                detail = None
+                if result.database_problem is None:
+                    detail = store.run_detail(result.run_id)
+                if result.database_problem is not None:
+                    _complain(
+                        f"error: results database {args.db} failed during the run: {result.database_problem}. "
+                        "Whatever reached it before that is still there. No report was written."
+                    )
+                elif args.report_dir:
+                    try:
+                        for path in write_reports(detail, args.report_dir):
+                            _say(f"Report: {path}")
+                    except OSError as exc:
+                        _complain(f"error: cannot write reports to {args.report_dir}: {exc}")
+                        _complain(f"The result of run {result.run_id} is safe in {args.db}; write it later with the report command.")
+                        return EXIT_ABORTED
     finally:
         if log_handle is not None:
             log_handle.close()
@@ -325,6 +364,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
     unaddressed = [spec.name for spec in plan.instruments.values() if not spec.address]
     if unaddressed:
         _say(f"  Needs an address from --station, --address or --sim: {', '.join(unaddressed)}")
+    for note in safety_notes(plan):
+        _say(f"  Note: {note}")
     return EXIT_PASS
 
 
@@ -762,8 +803,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _unusable_text(args: argparse.Namespace) -> Optional[str]:
+    """Name an argument that holds bytes this terminal's encoding could not decode."""
+    for name, value in vars(args).items():
+        for text in value if isinstance(value, list) else [value]:
+            if isinstance(text, str) and any(0xD800 <= ord(ch) <= 0xDFFF for ch in text):
+                return name
+    return None
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    bad = _unusable_text(args)
+    if bad:
+        _complain("Cannot continue:")
+        _complain(f"  the value of {bad} is not valid text here; use a UTF-8 terminal or plain ASCII")
+        return EXIT_USAGE
     try:
         return args.func(args)
     except PlanError as exc:
