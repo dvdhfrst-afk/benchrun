@@ -121,7 +121,7 @@ class Queries(BenchTestCase):
         self.assertAlmostEqual(row["stdev"], 0.1)
         self.assertEqual(row["minimum"], 4.9)
         self.assertEqual(row["maximum"], 5.1)
-        self.assertAlmostEqual(row["cpk"], 0.5 / 0.3)
+        self.assertAlmostEqual(row["ppk"], 0.5 / 0.3)
 
     def test_stats_keep_sweep_points_apart(self):
         run_id = new_run(self.store, status="pass")
@@ -130,7 +130,7 @@ class Queries(BenchTestCase):
         self.store.add_measurement(run_id, step_id, "m", "read", {"v": 2.0}, 2.0, "V", None, None, "info")
         stats = self.store.measurement_stats("p")
         self.assertEqual([s["point"] for s in stats], [{"v": 1.0}, {"v": 2.0}])
-        self.assertIsNone(stats[0]["cpk"])
+        self.assertIsNone(stats[0]["ppk"])
         self.assertIsNone(stats[0]["stdev"])
 
     def test_stats_leave_out_aborted_runs(self):
@@ -158,10 +158,10 @@ class Queries(BenchTestCase):
         rows = [(s["units"], s["low"], s["high"], s["count"]) for s in self.store.measurement_stats("p")]
         self.assertEqual(rows, [("V", 4.9, 5.1, 2), ("V", 3.2, 3.4, 1), ("mV", 4900.0, 5100.0, 1)])
 
-    def test_one_sided_cpk(self):
+    def test_one_sided_ppk(self):
         for value in (1.0, 2.0, 3.0):
             add_values(self.store, new_run(self.store, status="pass"), [value], high=5.0)
-        self.assertAlmostEqual(self.store.measurement_stats("p")[0]["cpk"], 3.0 / 3.0)
+        self.assertAlmostEqual(self.store.measurement_stats("p")[0]["ppk"], 3.0 / 3.0)
 
 
 class Reports(BenchTestCase):

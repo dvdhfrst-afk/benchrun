@@ -212,7 +212,7 @@ class OtherCommands(CliCase):
         for seed in (1, 2, 3):
             call("run", QUICK, "--serial", f"S{seed}", "--sim", "--seed", seed, "--db", self.db)
         _, out, _ = call("history", "--plan", "regulator-quick", "--stats", "--db", self.db)
-        self.assertIn("cpk", out)
+        self.assertIn("ppk", out)
         self.assertIn("vin=12", out)
         code, out, _ = call("history", "--plan", "regulator-quick", "--stats", "--json", "--db", self.db)
         self.assertEqual(code, EXIT_PASS)

@@ -303,7 +303,7 @@ serial number.
 
 `history --plan` adds first-pass yield (each serial counted once, on its first run that reached a
 verdict; aborted runs say nothing about a unit). `--stats` adds per-measurement statistics, including
-the process capability index (Cpk). Each sweep point gets its own row, and so does each set of units
+the process performance index (Ppk, from the overall spread; `stats` also gives Cpk). Each sweep point gets its own row, and so does each set of units
 and limits, so a run with `--set vnom=3.3` never mixes with the 5 V runs. `--json` is for scripts:
 
 ```bash

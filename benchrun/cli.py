@@ -503,11 +503,11 @@ def _print_stats(rows: List[Dict[str, Any]]) -> None:
             _fmt(row["maximum"]),
             _fmt(row["low"]),
             _fmt(row["high"]),
-            "" if row["cpk"] is None else f"{row['cpk']:.2f}",
+            "" if row["ppk"] is None else f"{row['ppk']:.2f}",
         )
         for row in rows
     ]
-    headers = ("step", "name", "point", "units", "n", "fails", "mean", "stdev", "min", "max", "low", "high", "cpk")
+    headers = ("step", "name", "point", "units", "n", "fails", "mean", "stdev", "min", "max", "low", "high", "ppk")
     _say(_table(headers, table_rows))
 
 

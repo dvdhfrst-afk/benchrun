@@ -278,6 +278,7 @@ python -m benchrun stats --plan regulator-quick --db lot.sqlite --format html --
 ## `history --stats`
 
 `history --plan NAME --stats` uses the same engine and the same exclusions, and keeps its own
-columns. Its `cpk` column has always been computed from the overall standard deviation, which is
-what `stats` calls Ppk; its other numbers (n, fails, mean, stdev, min, max) match `stats` exactly.
+columns. Its capability column is `ppk`, computed from the overall standard deviation exactly as in
+`stats`; its other numbers (n, fails, mean, stdev, min, max) match `stats` too. Before version 2.0.0
+this column was labeled `cpk`, although it was always this overall-sigma index.
 `history --serial` there means exactly that serial, not a prefix.

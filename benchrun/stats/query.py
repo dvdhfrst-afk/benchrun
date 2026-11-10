@@ -298,7 +298,7 @@ def run_labels(conn: sqlite3.Connection, chosen: _Chosen, run_ids: Sequence[int]
 
 
 def measurement_stats(conn: sqlite3.Connection, plan: str, serial: Optional[str] = None) -> List[Dict[str, Any]]:
-    """The rows ``history --stats`` shows. Its ``cpk`` has always used the overall sigma, which ``stats`` calls Ppk."""
+    """The rows ``history --stats`` shows. Its capability index is Ppk, from the overall sigma."""
     rows = []
     for group in measurement_groups(conn, Selection(plan=plan, serial=serial)):
         summary = measurement_summary(group)
@@ -316,7 +316,7 @@ def measurement_stats(conn: sqlite3.Connection, plan: str, serial: Optional[str]
                 "stdev": summary["stdev"],
                 "minimum": summary["minimum"],
                 "maximum": summary["maximum"],
-                "cpk": summary["capability"]["ppk"],
+                "ppk": summary["capability"]["ppk"],
             }
         )
     return rows
