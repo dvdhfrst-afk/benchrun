@@ -343,12 +343,13 @@ class Aborts(BenchTestCase):
         self.check_aborted(detail, result, "-113")
 
     def test_connection_refused_names_the_address(self):
-        probe = socket.socket()
-        probe.bind(("127.0.0.1", 0))
-        dead_port = probe.getsockname()[1]
-        probe.close()
         bench = self.start_bench()
         plan = self.on_bench(base_plan(), bench)
+        # Bound but never listening, and held until the run is over, so nothing else can take the port.
+        probe = socket.socket()
+        self.addCleanup(probe.close)
+        probe.bind(("127.0.0.1", 0))
+        dead_port = probe.getsockname()[1]
         plan.instruments["dmm"].address = f"127.0.0.1:{dead_port}"
         result = Runner(plan, self.store, "SN").run()
         detail = self.store.run_detail(result.run_id)

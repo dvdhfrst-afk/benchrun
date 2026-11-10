@@ -218,11 +218,13 @@ class Store:
     def _version(self) -> int:
         return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
 
-    def _has_tables(self) -> bool:
-        return self.conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] > 0
-
     def _migrate(self) -> None:
-        version = self._version()
+        # One statement, so both answers come from the same moment: another process may be
+        # creating the schema now, and between two reads it could finish.
+        version, tables = self.conn.execute(
+            "SELECT (SELECT user_version FROM pragma_user_version), (SELECT COUNT(*) FROM sqlite_master)"
+        ).fetchone()
+        version = int(version)
         if version == SCHEMA_VERSION:
             return
         if version > SCHEMA_VERSION:
@@ -230,7 +232,7 @@ class Store:
                 f"results database {self.path} has schema {version}, newer than the {SCHEMA_VERSION} "
                 "this benchrun knows. Upgrade benchrun; the file has not been changed."
             )
-        if version == 0 and self._has_tables():
+        if version == 0 and tables > 0:
             raise sqlite3.DatabaseError(
                 f"results database {self.path} is a SQLite file that benchrun did not create. "
                 "Choose another file with --db; this one has not been changed."
