@@ -417,7 +417,8 @@ class Readme(unittest.TestCase):
     def test_documented_commands_parse(self):
         parser = build_parser()
         seen = 0
-        for path in ("README.md", "docs/troubleshooting.md", "docs/ci.md", "docs/plan_format.md", "docs/simulators.md", "docs/drivers.md", "docs/stations.md", "examples/README.md"):
+        documents = ["README.md", "examples/README.md"] + sorted(f"docs/{p.name}" for p in (ROOT / "docs").glob("*.md"))
+        for path in documents:
             for line in self.commands(path):
                 words = shlex.split(line)
                 words = words[3:] if words[0] == "python" else words[1:]
