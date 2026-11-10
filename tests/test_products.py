@@ -371,6 +371,19 @@ class Running(ProductCase):
             html = render_html(store.run_detail(store.find_runs(serial="SN-1001")[0]["id"]))
         self.assertIn("<th>Product</th><td>PN-100-A</td>", html)
 
+    def test_part_numbers_ignore_case_as_asset_tags_and_station_names_do(self):
+        self.add_quick()
+        code, _, err = self.product("add", "pn-100-a", "--plan", QUICK)
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("'PN-100-A' already exists", err)
+        self.assertEqual(json.loads(self.ok("show", "pn-100-a", "--json"))["part_number"], "PN-100-A")
+        self.assertEqual(call("run", "--product", "pn-100-a", "--serial", "SN-1001", "--sim", "--db", self.db)[0], EXIT_PASS)
+        code, out, _ = call("history", "--product", "pn-100-A", "--db", self.db, "--json")
+        self.assertEqual([r["product"] for r in json.loads(out)["runs"]], ["PN-100-A"], "the run records the part number as added")
+        code, out, _ = call("stats", "--product", "Pn-100-a", "--yield", "--json", "--db", self.db)
+        self.assertEqual(code, EXIT_PASS, out)
+        self.assertEqual(json.loads(self.ok("list", "--json"))["products"][0]["runs"], 1)
+
     def test_history_without_products_keeps_its_columns(self):
         call("run", QUICK, "--serial", "SN-2", "--sim", "--db", self.db)
         code, out, _ = call("history", "--db", self.db)

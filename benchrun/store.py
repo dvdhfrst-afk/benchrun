@@ -459,7 +459,7 @@ class Store:
             clauses.append("station = ? COLLATE NOCASE")
             params.append(station)
         if product is not None:
-            clauses.append("product = ?")
+            clauses.append("product = ? COLLATE NOCASE")
             params.append(product)
         if lot_id is not None:
             clauses.append("lot_id = ?")

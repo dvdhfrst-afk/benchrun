@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from unittest import mock
 
-from benchrun import archive
+from benchrun import __version__, archive
 from benchrun.archive import FORMAT, MANIFEST, Archive, RunFile, check_record, content_text, database_id, record_from_store
 from benchrun.cli import EXIT_ABORTED, EXIT_FAIL, EXIT_PASS, EXIT_USAGE
 from benchrun.runner import Runner
@@ -120,10 +120,11 @@ class RoundTrip(Folder):
         code, out, err = call("archive", "export", "--db", self.db_a, "--out", self.zip)
         self.assertEqual(code, EXIT_PASS, err)
         self.assertIn("Wrote 3 runs", out)
-        code, out, err = call("archive", "import", self.zip, "--db", self.db_b)
+        code, out, err = call("archive", "import", self.zip, "--db", self.db_b, "--actor", "Operator B")
         self.assertEqual(code, EXIT_PASS, err)
         self.assertIn("Imported 3 runs", out)
         other = self.other_store()
+        self.assertEqual([tuple(r) for r in other.conn.execute("SELECT action, actor FROM audit_log")], [("archive.import", "Operator B")])
         source_id = database_id(self.store.conn)
         for run_id in ids:
             original = record_from_store(self.store, run_id)
@@ -297,7 +298,7 @@ class RoundTrip(Folder):
             self.assertEqual(manifest["format_version"], 1)
             self.assertEqual(manifest["database_id"], database_id(self.store.conn))
             self.assertEqual(manifest["run_count"], 3)
-            self.assertEqual(manifest["benchrun_version"], "1.1.0")
+            self.assertEqual(manifest["benchrun_version"], __version__)
             for member in manifest["members"]:
                 data = zipped.read(member["name"])
                 self.assertEqual(hashlib.sha256(data).hexdigest(), member["sha256"])

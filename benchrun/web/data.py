@@ -75,16 +75,16 @@ class RunFilter:
         for column, value in (
             ("serial", self.serial),
             ("plan_name", self.plan),
-            ("product", self.product),
             ("lot_id", self.lot),
             ("status", self.status),
         ):
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
-        if self.station is not None:
-            clauses.append("station = ? COLLATE NOCASE")
-            params.append(self.station)
+        for column, value in (("product", self.product), ("station", self.station)):
+            if value is not None:  # Part numbers and station names are unique ignoring case.
+                clauses.append(f"{column} = ? COLLATE NOCASE")
+                params.append(value)
         since = utc_time(self.since, "since")
         until = utc_time(self.until, "until", end_of_day=True)
         if since is not None:
@@ -261,10 +261,9 @@ def choices(conn: sqlite3.Connection) -> Dict[str, List[Any]]:
 # Lots ----------------------------------------------------------------------
 
 
-def lot_summary(conn: sqlite3.Connection, lot_id: int) -> Optional[Dict[str, Any]]:
-    """What ``lot show`` reports, for the lot with this id."""
-    row = conn.execute("SELECT name FROM lots WHERE id = ?", (lot_id,)).fetchone()
-    lot = None if row is None else lots.get(conn, row[0])
+def lot_summary(conn: sqlite3.Connection, name_or_id: str) -> Optional[Dict[str, Any]]:
+    """What ``lot show`` reports, for the lot with this name or id, as the command line takes it."""
+    lot = lots.lookup(conn, name_or_id)
     return None if lot is None else lots.summary(conn, lot)
 
 
@@ -305,5 +304,5 @@ def product_detail(conn: sqlite3.Connection, part_number: str) -> Optional[Dict[
     if product is None:
         return None
     item = product.as_json()
-    item["runs"] = products.run_count(conn, part_number)
+    item["runs"] = products.run_count(conn, product.part_number)
     return item

@@ -385,7 +385,7 @@ class SimScope(SimInstrument):
     """Two-channel oscilloscope. CH1 is VOUT, CH2 is VIN.
 
     Measurements are computed from a simulated 8-bit acquisition, so vertical
-    scale, coupling and timebase matter: a trace off screen reads as overload,
+    scale, coupling and timebase matter: a signal off screen reads as overload,
     and too few cycles on screen leaves the frequency undefined.
     """
 
@@ -394,7 +394,7 @@ class SimScope(SimInstrument):
     POINTS = 1000
     DIVISIONS_Y = 8
     DIVISIONS_X = 10
-    NOISE_DIV = 0.01  # Trace noise, in divisions rms.
+    NOISE_DIV = 0.01  # Display noise, in divisions rms.
 
     def reset(self) -> None:
         self.scale = {1: 1.0, 2: 1.0}
@@ -426,7 +426,7 @@ class SimScope(SimInstrument):
         return math.sin(phase)
 
     def _acquire(self, channel: int) -> Tuple[List[float], bool]:
-        """Return one record of volts, and whether the trace ran off screen."""
+        """Return one record of volts, and whether the signal ran off screen."""
         op = self.model.solve()
         if channel == 1:
             dc, ripple = op.vout, op.ripple_out_vpp

@@ -15,7 +15,7 @@ in one go, and is not part of the unit tests.
 
 - Standard library only, and Python 3.9 syntax. `tests/test_repo_rules.py` checks this.
 - LF line endings and no long dashes in any text file.
-- A user's mistake gets a plain message and an exit code, never a stack trace.
+- A user's mistake gets a plain message and an exit code, never a Python traceback.
 - A problem on the bench must never be recorded as a good unit. When unsure, abort.
 - Anything that writes a file the user keeps goes through `benchrun/files.py`.
 - Changing the database schema means adding a step to `_UPGRADES` in `benchrun/store.py` and raising

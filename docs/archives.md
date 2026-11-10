@@ -8,7 +8,8 @@ recognised as already there, or is refused with a reason.
 ## Commands
 
 Write the runs you want to an archive. `archive export` takes the same filters as `export` (`--serial`,
-`--plan`, `--status`, `--since`, `--until`), and `--run ID`, which can be given more than once. Filters
+`--plan`, `--product`, `--lot`, `--station`, `--status`, `--since`, `--until`), and `--run ID`, which can
+be given more than once. Filters
 given together all apply. It refuses to replace an existing file unless you add `--force`, and it
 writes the file all at once, so a full disk never leaves half an archive behind.
 
@@ -24,7 +25,7 @@ python -m benchrun archive list line1-week45.zip
 ```
 
 ```
-line1-week45.zip: benchrun archive (format 1) made 2026-11-10T05:25:09.081+00:00 by benchrun 1.1.0 from database e4b176d03b575c6a4416b39aaa32f401
+line1-week45.zip: benchrun archive (format 1) made 2026-11-10T05:25:09.081+00:00 by benchrun 2.0.0 from database e4b176d03b575c6a4416b39aaa32f401
 2 runs readable
 
 uuid                              serial   plan                 status  started (UTC)        measured
@@ -52,7 +53,7 @@ python -m benchrun archive import line1-week45.zip --db central.sqlite
 ```
 
 ```
-line1-week45.zip: benchrun archive (format 1) made 2026-11-10T05:25:09.081+00:00 by benchrun 1.1.0 from database e4b176d03b575c6a4416b39aaa32f401
+line1-week45.zip: benchrun archive (format 1) made 2026-11-10T05:25:09.081+00:00 by benchrun 2.0.0 from database e4b176d03b575c6a4416b39aaa32f401
 outcome   run here  uuid                              serial   plan                 status  started (UTC)
 --------  --------  --------------------------------  -------  -------------------  ------  -------------------
 imported  1         aec5ac52956a4e729a63e3ba47f56ef1  SN-1001  regulator-quick 1.0  PASS    2026-11-10 05:25:08
@@ -94,6 +95,8 @@ to it.
 
 Each import, except a dry run, writes one audit entry, action `archive.import`, subject
 `archive:<file name>`, with the counts of runs imported, skipped and refused and the uuids refused.
+It and any `lot.create` entry name `--actor` (default: your login name). A lot is matched by name
+ignoring case, as everywhere else.
 
 ## Exit codes
 

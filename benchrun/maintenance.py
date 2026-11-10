@@ -21,6 +21,8 @@ from benchrun.console import (
     DEFAULT_DB,
     EXIT_FAIL,
     EXIT_PASS,
+    actor_of,
+    add_actor_arg,
     count,
     open_store,
     positive_number,
@@ -150,7 +152,7 @@ def _last_activity(conn: sqlite3.Connection, run_id: int, started_at: str) -> st
     return max(times)
 
 
-def mark_abandoned(conn: sqlite3.Connection, older_than_hours: float, now: datetime, dry_run: bool) -> List[Dict[str, Any]]:
+def mark_abandoned(conn: sqlite3.Connection, older_than_hours: float, now: datetime, dry_run: bool, actor: str = "") -> List[Dict[str, Any]]:
     """Close runs left running longer than ``older_than_hours`` as aborted. One transaction and audit entry per run."""
     marked = []
     for run in running_runs(conn, now):
@@ -176,9 +178,10 @@ def mark_abandoned(conn: sqlite3.Connection, older_than_hours: float, now: datet
                 )
                 audit.record(
                     conn,
-                    "run.mark_abandoned",
+                    "run.mark-abandoned",
                     f"run:{run['uuid']}",
                     {"run_id": run["id"], "serial": run["serial"], "started_at": run["started_at"], "age_hours": run["age_hours"], "steps_closed": open_steps},
+                    actor,
                 )
         marked.append(run)
     return marked
@@ -276,8 +279,9 @@ def cmd_vacuum(args: argparse.Namespace) -> int:
 
 
 def cmd_mark_abandoned(args: argparse.Namespace) -> int:
+    actor = actor_of(args)
     with open_store(_existing(args.db)) as store:
-        marked = mark_abandoned(store.conn, args.older_than, _now(), args.dry_run)
+        marked = mark_abandoned(store.conn, args.older_than, _now(), args.dry_run, actor)
     if args.json:
         say(json.dumps({"dry_run": args.dry_run, "reason": ABANDONED, "marked_at": now_iso(), "runs": marked}, indent=2))
         return EXIT_PASS
@@ -331,3 +335,4 @@ def add_commands(subparsers: Any) -> None:
     abandoned.add_argument("--older-than", type=positive_number, required=True, metavar="HOURS", help="only runs that started more than this many hours ago")
     abandoned.add_argument("--dry-run", action="store_true", help="list the runs and change nothing")
     abandoned.add_argument("--json", action="store_true", help="machine-readable output")
+    add_actor_arg(abandoned)

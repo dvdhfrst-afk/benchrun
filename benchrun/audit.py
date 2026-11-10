@@ -101,7 +101,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
 def add_commands(subparsers: Any) -> None:
     audit = subparsers.add_parser("audit", help="list changes made to instruments, stations and other shared records")
     audit.add_argument("--subject", help="only this subject, such as instrument:PSU-0001; ending in : matches every one, such as station:")
-    audit.add_argument("--action", help="only this action, such as add, edit, retire or assign")
+    audit.add_argument("--action", help="only this action, such as instrument.add, station.assign, product.set-limit or lot.close")
     audit.add_argument("--actor", help="only changes made by this actor; an empty value finds changes with none")
     audit.add_argument("--since", metavar="TIME", help="only entries at or after this UTC date or time, YYYY-MM-DD[THH:MM]")
     audit.add_argument("--until", metavar="TIME", help="only entries at or before this UTC date or time")

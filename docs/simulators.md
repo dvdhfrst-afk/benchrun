@@ -103,14 +103,14 @@ sequence on a freshly started bench gives identical readings. `--noise` scales i
 | Multimeter DC amperes | 20 uA, divided by the square root of NPLC |
 | Supply volts, amperes | 500 uV, 50 uA |
 | Load volts, amperes | 500 uV, 100 uA |
-| Oscilloscope trace | 0.01 division |
+| Oscilloscope display | 0.01 division |
 
 ## Instrument behavior that matters to a plan
 
 - **Multimeter:** with a fixed range, a signal above 1.2 times the range reads as overload (9.9E37).
   `CONF` resets integration time to 1 NPLC.
 - **Oscilloscope:** measurements come from a simulated 1000-point, 8-bit record covering 10
-  horizontal and 8 vertical divisions. A trace off screen reads as overload, so set AC coupling to
+  horizontal and 8 vertical divisions. A signal off screen reads as overload, so set AC coupling to
   look at ripple on a DC rail. `MEAS:FREQ?` needs at least two cycles on screen, otherwise it reads
   as overload.
 - **Supply limits:** 0 to 30 V, 0 to 5 A. **Load limit:** 0 to 5 A. Beyond these, the setting is

@@ -13,9 +13,9 @@ python -m benchrun sim --write-addresses sim_station.json
 ```
 
 All of these commands take `--db` to choose the results database; the default is `benchrun.sqlite`
-in the current folder. Each command that changes something takes `--actor TEXT`, which is kept in
-the audit log with the change. It is one line of free text, like `--operator` on `run`, and may be
-left empty.
+in the current folder. Each command that changes something takes `--actor NAME`, which is kept in
+the audit log with the change. It is one line of free text, like `--operator` on `run`. Left out, it
+is your login name, as on every benchrun command that writes the audit log; `--actor ""` records none.
 
 ## The inventory
 
@@ -285,11 +285,11 @@ An import is all or nothing. It is refused if the station already exists, if two
 address, if a role's driver is unknown, or if the file disagrees with the inventory, such as an
 address that belongs to an instrument with another driver.
 
-`station export NAME FILE` writes a station file. Its `addresses` are what `--station FILE` reads,
+`station export NAME --out FILE` writes a station file. Its `addresses` are what `--station FILE` reads,
 so a station can still be used by a benchrun that has no database, or on another machine:
 
 ```bash
-python -m benchrun station export LINE-1 line1_station.json
+python -m benchrun station export LINE-1 --out line1_station.json
 ```
 
 ```bash
@@ -303,11 +303,11 @@ replace a file without `--force`.
 
 ## Inventory files
 
-`instrument export FILE` writes instruments to CSV or JSON, chosen by the file's name or by
+`instrument export --out FILE` writes instruments to CSV or JSON, chosen by the file's name or by
 `--format`, and takes the same filters as `list`. `instrument import FILE` reads the same formats:
 
 ```bash
-python -m benchrun instrument export inventory.csv
+python -m benchrun instrument export --out inventory.csv
 ```
 
 ```bash
@@ -350,27 +350,27 @@ python -m benchrun audit --subject instrument:PSU-0001
 ```
 
 ```text
-entry  at (UTC)             action      subject              actor
------  -------------------  ----------  -------------------  ----------
-7      2026-11-10 05:23:36  reactivate  instrument:PSU-0001  Operator B
+entry  at (UTC)             action                 subject              actor
+-----  -------------------  ---------------------  -------------------  ----------
+7      2026-11-10 05:23:36  instrument.reactivate  instrument:PSU-0001  Operator B
     reason="Relay replaced", status=["in-repair", "active"]
-6      2026-11-10 05:23:35  edit        instrument:PSU-0001  Operator B
+6      2026-11-10 05:23:35  instrument.edit        instrument:PSU-0001  Operator B
     notes=["", "Output relay clicks"], status=["active", "in-repair"]
-1      2026-11-10 05:23:31  add         instrument:PSU-0001  Operator A
+1      2026-11-10 05:23:31  instrument.add         instrument:PSU-0001  Operator A
     address="127.0.0.1:5026", asset_tag="PSU-0001", driver="psu", location="Lab 1", manufacturer="benchrun", model="SIM-PSU", notes="", serial_number="SIM0002", status="active"
 ```
 
 | Option | What it selects |
 |---|---|
 | `--subject S` | One subject. Ending in `:`, as in `station:`, every subject of that kind |
-| `--action A` | `add`, `edit`, `retire` or `reactivate` for instruments; `create`, `assign`, `unassign`, `rename`, `delete` or `import` for stations |
+| `--action A` | `instrument.add`, `instrument.edit`, `instrument.retire` or `instrument.reactivate`; `station.create`, `station.assign`, `station.unassign`, `station.rename`, `station.delete` or `station.import`. Products, lots, archive imports and `db mark-abandoned` name theirs the same way, such as `product.set-limit`, `lot.close`, `archive.import` and `run.mark-abandoned` |
 | `--actor A` | Changes made by this actor; `--actor ""` finds those made with none |
 | `--since`, `--until` | A UTC date or time, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` |
 | `--limit N` | The newest N, default 100 |
 | `--json` | Everything, for scripts |
 
 A rename is recorded under the new name, with the old one in its detail. Importing a station
-records an `add` for each new instrument and one `import` for the station with all its roles.
+records an `instrument.add` for each new instrument and one `station.import` for the station with all its roles.
 
 The audit log shows who changed what through benchrun. Like the rest of the database, it is not
 proof against someone editing the file directly.

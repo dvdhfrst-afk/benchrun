@@ -21,6 +21,8 @@ from benchrun.console import (
     DEFAULT_DB,
     EXIT_PASS,
     EXIT_USAGE,
+    actor_of,
+    add_actor_arg,
     check_label,
     count,
     not_negative_whole,
@@ -201,7 +203,7 @@ def insert_instrument(
         f"INSERT INTO instruments ({', '.join(FIELDS)}, added_at, updated_at) VALUES ({', '.join('?' * (len(FIELDS) + 2))})",
         [record[key] for key in FIELDS] + [now, now],
     )
-    audit.record(conn, "add", f"instrument:{record['asset_tag']}", {**record, **(extra or {})}, actor)
+    audit.record(conn, "instrument.add", f"instrument:{record['asset_tag']}", {**record, **(extra or {})}, actor)
     return record
 
 
@@ -210,7 +212,7 @@ def change_instrument(
     current: Mapping[str, Any],
     changes: Mapping[str, str],
     actor: str,
-    action: str = "edit",
+    action: str = "instrument.edit",
     extra: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, List[str]]:
     """Apply what differs and record it as ``{field: [old, new]}``. Nothing differs, nothing is written."""
@@ -395,7 +397,7 @@ def apply_import(conn: sqlite3.Connection, planned: Sequence[Dict[str, Any]], ac
         if entry["outcome"] == "add":
             insert_instrument(conn, entry["fields"], actor, extra)
         elif entry["outcome"] == "change":
-            change_instrument(conn, entry["current"], entry["changes"], actor, "edit", extra)
+            change_instrument(conn, entry["current"], entry["changes"], actor, "instrument.edit", extra)
 
 
 def render_export(rows: Sequence[Mapping[str, Any]], file_format: str) -> str:
@@ -425,7 +427,7 @@ _DESCRIPTIVE = ("manufacturer", "model", "serial_number", "address", "location",
 
 
 def cmd_add(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     fields, problems = clean_fields({"asset_tag": args.tag, "driver": args.driver, "status": args.status, **_given(args, _DESCRIPTIVE)})
     if problems:
         raise PlanError(problems)
@@ -485,7 +487,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_edit(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     raw = _given(args, ("driver", "status") + _DESCRIPTIVE)
     if not raw:
         raise PlanError(["nothing to change; give at least one of --driver, --manufacturer, --model, --serial-number, --address, --location, --notes, --status"])
@@ -506,7 +508,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
 
 
 def _set_status(args: argparse.Namespace, status: str, action: str) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     reason = check_label(args.reason, "--reason")
     with open_store(args.db) as store, writing(store.conn) as conn:
         current = require_instrument(conn, args.tag)
@@ -525,11 +527,11 @@ def _set_status(args: argparse.Namespace, status: str, action: str) -> int:
 
 
 def cmd_retire(args: argparse.Namespace) -> int:
-    return _set_status(args, "retired", "retire")
+    return _set_status(args, "retired", "instrument.retire")
 
 
 def cmd_reactivate(args: argparse.Namespace) -> int:
-    return _set_status(args, "active", "reactivate")
+    return _set_status(args, "active", "instrument.reactivate")
 
 
 def _import_line(entry: Mapping[str, Any], dry_run: bool) -> Optional[str]:
@@ -547,7 +549,7 @@ def _import_line(entry: Mapping[str, Any], dry_run: bool) -> Optional[str]:
 
 
 def cmd_import(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     rows = read_import_file(args.file, args.format)
     if not rows:
         raise PlanError([f"{args.file} lists no instruments"])
@@ -588,10 +590,6 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def add_db_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
-
-
-def add_actor_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--actor", default="", help="who is making the change, kept in the audit log (default: empty)")
 
 
 def _add_descriptive_args(parser: argparse.ArgumentParser) -> None:
@@ -665,7 +663,7 @@ def add_commands(subparsers: Any) -> None:
     importing.set_defaults(func=cmd_import)
 
     export = commands.add_parser("export", help="write instruments to a CSV or JSON file that import reads")
-    export.add_argument("file", help="the file to write")
+    export.add_argument("--out", dest="file", metavar="FILE", required=True, help="the file to write")
     export.add_argument("--format", choices=FILE_FORMATS, help="file format (default: from the file name)")
     export.add_argument("--force", action="store_true", help="replace the file if it already exists")
     _add_filter_args(export)

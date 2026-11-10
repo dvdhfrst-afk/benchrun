@@ -190,7 +190,7 @@ class MarkAbandoned(Maintenance):
         self.started(old, 10)
         self.started(finished, 10)
         last = self.store.conn.execute("SELECT MAX(taken_at) FROM measurements WHERE run_id = ?", (old,)).fetchone()[0]
-        code, out, err = call("db", "mark-abandoned", "--older-than", 5, "--db", self.db)
+        code, out, err = call("db", "mark-abandoned", "--older-than", 5, "--db", self.db, "--actor", "Operator B")
         self.assertEqual(code, EXIT_PASS, err)
         self.assertIn("Marked 1 run aborted", out)
         run = self.store.conn.execute("SELECT status, reason, finished_at FROM runs WHERE id = ?", (old,)).fetchone()
@@ -202,8 +202,9 @@ class MarkAbandoned(Maintenance):
         entries = self.store.conn.execute("SELECT action, subject, detail FROM audit_log").fetchall()
         self.assertEqual(len(entries), 1)
         uuid = self.store.conn.execute("SELECT uuid FROM runs WHERE id = ?", (old,)).fetchone()[0]
-        self.assertEqual((entries[0][0], entries[0][1]), ("run.mark_abandoned", f"run:{uuid}"))
+        self.assertEqual((entries[0][0], entries[0][1]), ("run.mark-abandoned", f"run:{uuid}"))
         self.assertEqual(json.loads(entries[0][2])["steps_closed"], 2)
+        self.assertEqual(self.store.conn.execute("SELECT actor FROM audit_log").fetchone()[0], "Operator B")
         self.assertIn("No run has been marked running", call("db", "mark-abandoned", "--older-than", 5, "--db", self.db)[1])
 
     def test_one_audit_entry_per_run(self):

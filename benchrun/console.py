@@ -83,6 +83,24 @@ def check_label(text: str, flag: str) -> str:
     return text
 
 
+def add_actor_arg(parser: argparse.ArgumentParser) -> None:
+    """``--actor`` for a command that changes shared records and so writes the audit log."""
+    parser.add_argument("--actor", metavar="NAME", help="who is making the change, kept in the audit log (default: your login name)")
+
+
+def add_record_filter_args(parser: argparse.ArgumentParser) -> None:
+    """``--product``, ``--lot`` and ``--station``, the same on every command that chooses recorded runs."""
+    parser.add_argument("--product", metavar="PART_NUMBER", help="only runs tested as this product")
+    parser.add_argument("--lot", metavar="NAME", help="only runs in this lot, by name or numeric id")
+    parser.add_argument("--station", metavar="NAME", help="only runs recorded on this station")
+
+
+def actor_of(args: argparse.Namespace) -> str:
+    """Who to name in the audit log: ``--actor``, or the login name of whoever runs the command."""
+    name = args.actor if args.actor is not None else os.environ.get("USER") or os.environ.get("USERNAME") or ""
+    return check_label(name, "--actor")
+
+
 def utc_time(text: Optional[str], flag: str, end_of_day: bool = False) -> Optional[str]:
     """Turn a date or a date and time, taken as UTC, into the form the database stores."""
     if text is None:

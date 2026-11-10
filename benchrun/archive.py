@@ -28,11 +28,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
-from benchrun import __version__, audit
+from benchrun import __version__, audit, lots
 from benchrun.console import (
     DEFAULT_DB,
     EXIT_FAIL,
     EXIT_PASS,
+    actor_of,
+    add_actor_arg,
+    add_record_filter_args,
     EXIT_USAGE,
     MAX_TEXT_CHARS,
     complain,
@@ -743,17 +746,17 @@ def _decide(store: Store, record: Dict[str, Any], include_unfinished: bool, deri
     return IMPORTED, None, ""
 
 
-def _local_lot(conn: sqlite3.Connection, lot: Optional[Dict[str, Any]], label: str, added: List[str]) -> Optional[int]:
+def _local_lot(conn: sqlite3.Connection, lot: Optional[Dict[str, Any]], label: str, added: List[str], actor: str) -> Optional[int]:
     if lot is None:
         return None
-    row = conn.execute("SELECT id FROM lots WHERE name = ?", (lot["name"],)).fetchone()
+    row = conn.execute("SELECT id FROM lots WHERE name = ? COLLATE NOCASE", (lot["name"],)).fetchone()
     if row is not None:
         return int(row[0])
     names = [name for name, _, _ in _LOT_FIELDS]
     cursor = conn.execute(
         f"INSERT INTO lots ({', '.join(names)}) VALUES ({', '.join('?' for _ in names)})", [lot[name] for name in names]
     )
-    audit.record(conn, "lot.create", f"lot:{lot['name']}", {"imported_from": label, **lot})
+    audit.record(conn, "lot.create", f"lot:{lot['name']}", {"imported_from": label, **lot}, actor)
     added.append(lot["name"])
     return int(cursor.lastrowid)
 
@@ -790,7 +793,9 @@ def _insert(conn: sqlite3.Connection, record: Dict[str, Any], origin: str, impor
     return run_id
 
 
-def import_runs(store: Store, source: Source, include_unfinished: bool = False, dry_run: bool = False) -> Tuple[List[Outcome], List[str]]:
+def import_runs(
+    store: Store, source: Source, include_unfinished: bool = False, dry_run: bool = False, actor: str = ""
+) -> Tuple[List[Outcome], List[str]]:
     """Import every run from a checked source in one transaction. A dry run does it all and rolls back."""
     conn = store.conn
     outcomes: List[Outcome] = []
@@ -802,7 +807,7 @@ def import_runs(store: Store, source: Source, include_unfinished: bool = False, 
         for record in source.records():
             action, run_id, detail = _decide(store, record, include_unfinished, derived)
             if action == IMPORTED:
-                lot_id = _local_lot(conn, record["lot"], source.label, lots_added)
+                lot_id = _local_lot(conn, record["lot"], source.label, lots_added, actor)
                 run_id = _insert(conn, record, source.origin, imported_at, lot_id)
             summary = _summary(record)
             del summary["measurements"]
@@ -814,6 +819,7 @@ def import_runs(store: Store, source: Source, include_unfinished: bool = False, 
             "archive.import",
             f"archive:{source.label}",
             {"file": str(source.path), "kind": source.kind, "origin": source.origin, "refused": refused, **tally},
+            actor,
         )
     except BaseException:
         conn.rollback()
@@ -859,7 +865,10 @@ def cmd_export(args: argparse.Namespace) -> int:
             missing = [str(run_id) for run_id in args.run if store.conn.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone() is None]
             if missing:
                 raise PlanError([f"no run with id {', '.join(missing)} in {args.db}"])
-        rows = store.find_runs(serial=args.serial, plan=args.plan, status=args.status, since=since, until=until)
+        lot_id = lots.find(store.conn, args.lot)["id"] if args.lot is not None else None
+        rows = store.find_runs(
+            serial=args.serial, plan=args.plan, status=args.status, since=since, until=until, station=args.station, product=args.product, lot_id=lot_id
+        )
         run_ids = sorted(row["id"] for row in rows if not args.run or row["id"] in args.run)
         if not run_ids:
             complain("No matching runs, so nothing was written.")
@@ -924,6 +933,7 @@ _SHOWN_ACTION = {
 
 
 def cmd_import(args: argparse.Namespace) -> int:
+    actor = actor_of(args)
     source, problems = _checked(args.file)
     try:
         if problems:
@@ -931,7 +941,7 @@ def cmd_import(args: argparse.Namespace) -> int:
         # A dry run must not leave a new database behind either.
         target = ":memory:" if args.dry_run and not Path(args.db).exists() else args.db
         with open_store(target) as store:
-            outcomes, lots_added = import_runs(store, source, args.include_unfinished, args.dry_run)
+            outcomes, lots_added = import_runs(store, source, args.include_unfinished, args.dry_run, actor)
     finally:
         source.close()
     tally = {action: sum(1 for o in outcomes if o.action == action) for action in (IMPORTED, SKIPPED, CONFLICT, UNFINISHED)}
@@ -973,6 +983,7 @@ def add_commands(subparsers: Any) -> None:
     export.add_argument("--run", type=int, action="append", metavar="ID", help="only this run id (repeatable); other filters narrow it further")
     export.add_argument("--serial", help="only this unit")
     export.add_argument("--plan", help="only this plan")
+    add_record_filter_args(export)
     export.add_argument("--status", choices=RUN_STATUSES, help="only runs with this result")
     export.add_argument("--since", metavar="TIME", help="only runs started at or after this UTC date or time, YYYY-MM-DD[THH:MM]")
     export.add_argument("--until", metavar="TIME", help="only runs started at or before this UTC date or time")
@@ -999,4 +1010,5 @@ def add_commands(subparsers: Any) -> None:
     imported.add_argument("--dry-run", action="store_true", help="report what would happen and change nothing")
     imported.add_argument("--include-unfinished", action="store_true", help="also import runs still marked running; they stay marked running")
     imported.add_argument("--json", action="store_true", help="machine-readable output")
+    add_actor_arg(imported)
     imported.set_defaults(func=cmd_import)

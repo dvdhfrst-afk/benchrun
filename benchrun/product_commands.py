@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -13,7 +12,8 @@ from benchrun import products
 from benchrun.console import (
     DEFAULT_DB,
     EXIT_PASS,
-    check_label,
+    actor_of,
+    add_actor_arg,
     count,
     fmt,
     open_store,
@@ -23,12 +23,6 @@ from benchrun.console import (
 from benchrun.errors import PlanError
 from benchrun.files import atomic_write_text
 from benchrun.plan import describe_limit_side
-
-
-def actor_of(args: argparse.Namespace) -> str:
-    """Who to name in the audit log: ``--actor``, or the login name of whoever runs the command."""
-    name = args.actor if args.actor is not None else os.environ.get("USER") or os.environ.get("USERNAME") or ""
-    return check_label(name, "--actor")
 
 
 def _existing_store(path: str):
@@ -258,7 +252,7 @@ def load_product(db: str, part_number: str) -> products.Product:
 def _common(parser: argparse.ArgumentParser, changes: bool = True) -> None:
     parser.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     if changes:
-        parser.add_argument("--actor", help="who to name in the audit log (default: your login name)")
+        add_actor_arg(parser)
 
 
 def _part(parser: argparse.ArgumentParser) -> None:

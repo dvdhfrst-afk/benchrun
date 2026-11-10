@@ -209,7 +209,9 @@ All of them take `--db FILE` (default `benchrun.sqlite`). Commands that change s
 | `product import-limits PN FILE [--dry-run] [--replace]` | Sets limits from a CSV file. `--replace` also removes the part's limits that are not in the file. |
 | `product export-limits PN [--out FILE] [--force]` | Writes the part's own limits as CSV, or prints them. Never replaces a file without `--force`. |
 
-A part number is 1 to 64 printable characters with no space at either end. Every change writes one
+A part number is 1 to 64 printable characters with no space at either end. Part numbers are unique
+ignoring case and found ignoring case, like asset tags and station names: `reg-500` finds `REG-500`,
+in `history --product`, `stats --product` and the web pages too. Every change writes one
 entry to the audit log, under the subject `product:PN`, with the old and new values.
 
 ## Limit files

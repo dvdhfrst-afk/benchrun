@@ -115,12 +115,12 @@ def lots(conn: sqlite3.Connection, query: Mapping[str, str]) -> Dict[str, Any]:
     return {"lots": lots_module.listing(conn)}
 
 
-def lot(conn: sqlite3.Connection, lot_id: int) -> Dict[str, Any]:
+def lot(conn: sqlite3.Connection, name_or_id: str) -> Dict[str, Any]:
     """What ``lot show --json`` gives: the lot, its runs, units, yield and failures by measurement."""
-    found = data.lot_summary(conn, lot_id)
+    found = data.lot_summary(conn, name_or_id)
     if found is None:
-        raise NotFound(f"no lot with id {lot_id}")
-    found["unit_results"] = lots_module.unit_results(conn, lot_id)
+        raise NotFound(f"no lot named {name_or_id!r} and none with that id")
+    found["unit_results"] = lots_module.unit_results(conn, found["lot"]["id"])
     return found
 
 

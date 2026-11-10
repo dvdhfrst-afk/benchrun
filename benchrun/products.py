@@ -218,7 +218,7 @@ def describe(pair: Optional[LimitPair], units: str = "") -> str:
 
 
 def get(conn: sqlite3.Connection, part_number: str) -> Optional[Product]:
-    row = conn.execute("SELECT * FROM products WHERE part_number = ?", (part_number,)).fetchone()
+    row = conn.execute("SELECT * FROM products WHERE part_number = ? COLLATE NOCASE", (part_number,)).fetchone()
     if row is None:
         return None
     product = Product(
@@ -241,7 +241,7 @@ def require(conn: sqlite3.Connection, part_number: str) -> Product:
 
 
 def run_count(conn: sqlite3.Connection, part_number: str) -> int:
-    return int(conn.execute("SELECT COUNT(*) FROM runs WHERE product = ?", (part_number,)).fetchone()[0])
+    return int(conn.execute("SELECT COUNT(*) FROM runs WHERE product = ? COLLATE NOCASE", (part_number,)).fetchone()[0])
 
 
 def summaries(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
@@ -280,6 +280,10 @@ def add(conn: sqlite3.Connection, part_number: str, description: str, plan_file:
     check_label(description, "--description")
     check_pattern(serial_pattern)
     load_plan(plan_file)
+    existing = get(conn, part_number)
+    if existing is not None:
+        # Part numbers are unique ignoring case, as asset tags and station names are.
+        raise PlanError([f"product {existing.part_number!r} already exists; change it with: benchrun product edit"])
     stamp = now_iso()
     try:
         with conn:

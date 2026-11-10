@@ -129,6 +129,16 @@ class Opening(Case):
                 self.assertEqual(self.lot(*argv)[0], EXIT_USAGE)
         self.assertEqual(len(self.audit()), 1)
 
+    def test_lot_names_ignore_case_as_station_names_do(self):
+        self.open_lot()
+        code, _, err = self.lot("open", LOT.lower(), "--plan", QUICK)
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn(f"already a lot named {LOT}", err)
+        self.assertIn(f"Lot {LOT}: OPEN", self.ok("show", LOT.lower()))
+        self.assertEqual(self.sim_run("SN-1001", "--lot", LOT.lower())[0], EXIT_PASS)
+        code, out, _ = call("history", "--lot", LOT.lower(), "--json", "--db", self.db)
+        self.assertEqual([r["serial"] for r in json.loads(out)["runs"]], ["SN-1001"])
+
     def test_list_and_status_filter(self):
         code, out, err = self.lot("list")
         self.assertEqual(code, EXIT_USAGE, "no database yet")
@@ -478,6 +488,22 @@ class ShowAndReport(Case):
         self.sim_run("SN-1003", "--lot", LOT, "--dut", "high-output")
         self.sim_run("SN-1003", "--lot", LOT, "--seed", "4")
         self.sim_run("SN-1004", "--lot", LOT, "--fault", "dmm:drop:1")
+
+    def test_export_and_archive_export_choose_the_runs_of_a_lot(self):
+        self.sim_run("SN-9001")  # Not in the lot.
+        out_file = self.folder / "lot.jsonl"
+        code, out, err = call("export", "--lot", LOT.lower(), "--format", "jsonl", "--out", out_file, "--db", self.db)
+        self.assertEqual(code, EXIT_PASS, out + err)
+        self.assertIn("Wrote 5 runs", out)
+        serials = {json.loads(line)["serial"] for line in out_file.read_text(encoding="utf-8").splitlines()}
+        self.assertEqual(serials, {"SN-1001", "=1+1", "SN-1003", "SN-1004"})
+        code, out, err = call("archive", "export", "--lot", "1", "--status", "pass", "--out", self.folder / "lot.zip", "--db", self.db)
+        self.assertEqual(code, EXIT_PASS, out + err)
+        self.assertIn("Wrote 3 runs", out)
+        code, _, err = call("export", "--lot", "L-NONE", "--out", self.folder / "none.csv", "--db", self.db)
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("no lot named 'L-NONE'", err)
+        self.assertFalse((self.folder / "none.csv").exists())
 
     def test_show(self):
         out = self.ok("show", LOT, "--units")

@@ -60,7 +60,7 @@ Times are UTC everywhere, as the database stores them.
 | `/serials/SERIAL` | Every run of one unit, with its latest result |
 | `/plans` | Every plan that has a run: versions, runs, units, first-pass and final yield, first and last run |
 | `/stats?plan=NAME` | The statistics `stats --format html` gives: runs used and left out, yield, the failure Pareto, a summary per measurement, and a histogram and an individuals control chart for each. The form narrows by product, station, lot, serial prefix, dates and measurement. |
-| `/lots`, `/lots/ID` | Lots with quantity, units tested, units still to test, first-pass and final yield; a lot's page adds the failures by measurement, its statistics and its runs |
+| `/lots`, `/lots/LOT` | Lots with quantity, units tested, units still to test, first-pass and final yield; a lot's page adds the failures by measurement, its statistics and its runs |
 | `/stations` | Each station and the instrument in each role |
 | `/instruments`, `/instruments/TAG` | The inventory, filtered by driver, status or text; one instrument's stations and the runs it took part in |
 | `/products`, `/products/PART` | Part numbers, with their variables and limits |
@@ -70,6 +70,9 @@ Yield is the statistics engine's: each serial counts once, from its complete run
 its first and final from its last; aborted, unfinished and some-steps runs are counted apart. A
 lot's units tested are the serials in it with a complete run, and units still to test are its
 quantity less those.
+
+`LOT` is a lot's name or its numeric id, as the `lot` commands take it; the pages link by id. Lot
+names, part numbers, station names and asset tags are found ignoring case, in paths and in filters.
 
 A serial, asset tag or part number holding `/` or `\` is linked with a query instead of a path,
 such as `/serials?serial=SN%2F1004`, because the server refuses encoded slashes in a path.
@@ -100,7 +103,7 @@ Every answer is one JSON object, and every list that can be long is paged with `
 | `/api/serials/SERIAL` | `serial`, `runs` and `paging` (or `/api/serials?serial=...`) |
 | `/api/plans` | `plans` |
 | `/api/stats?plan=NAME` | what `stats --json` gives; `view` is `summary` (default), `yield`, `pareto`, `histogram` or `control`, the last two with `measurement=NAME`, and `bins` with `histogram`. It takes `product`, `station`, `lot`, `serial` (a prefix), `since`, `until`, `step`, `measurement` and `limit_runs`. |
-| `/api/lots`, `/api/lots/ID` | `lots`, as `lot list --json`; one lot as `lot show --json`: `lot`, `runs`, `units`, `running_runs`, `pareto` and `unit_results` |
+| `/api/lots`, `/api/lots/LOT` | `lots`, as `lot list --json`; one lot as `lot show --json`: `lot`, `runs`, `units`, `running_runs`, `pareto` and `unit_results` |
 | `/api/stations` | `stations`, each with its `roles` |
 | `/api/instruments`, `/api/instruments/TAG` | `instruments` (filters `driver`, `status`, `search`); `instrument` with `stations` and `recent_runs` |
 | `/api/products`, `/api/products/PART` | `products`; `product` with `variables` and `limits` |

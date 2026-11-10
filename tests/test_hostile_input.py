@@ -1,7 +1,7 @@
 """Files and values that are empty, huge, malformed or written to do harm.
 
 Every case must end in a plain message and the right exit code. None may print a
-stack trace, run for long, write outside the chosen folder, or pass something it
+traceback, run for long, write outside the chosen folder, or pass something it
 should not.
 """
 

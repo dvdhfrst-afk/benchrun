@@ -40,6 +40,9 @@ MAX_BODY = 16 * 1024
 MAX_FIELDS = 64
 REQUEST_TIMEOUT_S = 30
 COPY_CHUNK = 64 * 1024
+# A body left unread is read and dropped, up to this much, so that the client sees the answer (such as
+# a 413) instead of a connection reset. Anything larger just has its connection closed.
+MAX_DRAIN = 1024 * 1024
 
 PAGE_POLICY = "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 # A report is a page of its own with its style inside it. Sandboxed, it can do nothing but be read.
@@ -276,7 +279,7 @@ class App:
             if kind == "serials":
                 return self.html(pages.serial(site, conn, name, q))
             if kind == "lots":
-                return self.html(pages.lot(site, conn, _whole(name, "lot")))
+                return self.html(pages.lot(site, conn, name))
             if kind == "instruments":
                 return self.html(pages.instrument(site, conn, name))
             if kind == "products":
@@ -321,7 +324,7 @@ class App:
             elif kind == "serials":
                 payload = api.serial(conn, name, q)
             elif kind == "lots":
-                payload = api.lot(conn, _whole(name, "lot"))
+                payload = api.lot(conn, name)
             elif kind == "instruments":
                 payload = api.instrument(conn, name)
             elif kind == "products":
@@ -399,6 +402,19 @@ class App:
         return Response(303, headers={"Location": "/launch"})
 
 
+class _CountingReader:
+    """The request body, counting what the app reads of it."""
+
+    def __init__(self, raw: BinaryIO) -> None:
+        self.raw = raw
+        self.count = 0
+
+    def read(self, size: int = -1) -> bytes:
+        data = self.raw.read(size)
+        self.count += len(data)
+        return data
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "benchrun"
     sys_version = ""
@@ -430,8 +446,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.serve("OPTIONS")
 
     def serve(self, method: str) -> None:
-        response = self.server.app.respond(method, self.path, self.headers, self.rfile)
+        body = _CountingReader(self.rfile)
+        response = self.server.app.respond(method, self.path, self.headers, body)
+        self.drop_unread_body(body)
         self.write(response, with_body=method != "HEAD")
+
+    def drop_unread_body(self, body: "_CountingReader") -> None:
+        """Read what is left of a body the app refused, so that the answer arrives before the connection ends."""
+        length = (self.headers.get("Content-Length") or "").strip()
+        if not (length.isascii() and length.isdigit()) or len(length) > 12:
+            return
+        left = int(length) - body.count
+        if left <= 0:
+            return
+        self.close_connection = True
+        if left > MAX_DRAIN:
+            return
+        try:
+            while left > 0:
+                chunk = self.rfile.read(min(left, COPY_CHUNK))
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except (ConnectionError, socket.timeout):
+            pass
 
     def send_error(self, code: int, message: Optional[str] = None, explain: Optional[str] = None) -> None:
         """Errors found before a request reaches the app, such as a request line that is too long."""

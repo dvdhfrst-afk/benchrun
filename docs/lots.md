@@ -24,7 +24,8 @@ write an entry in the audit log (`benchrun audit --subject lot:NAME`).
 
 `lot open` also takes `--quantity N`, the number of units in the lot, so that `lot show` can say
 how many are still to test, and `--note TEXT` for one line such as the work order. A lot name is 1
-to 64 printable characters. Wherever a command takes a lot, it also accepts the lot's numeric id.
+to 64 printable characters, unique ignoring case, and is found ignoring case. Wherever a command
+takes a lot, including the web pages, it also accepts the lot's numeric id.
 Commands that change a lot take `--actor` to name who made the change in the audit log; the
 default is the login name.
 

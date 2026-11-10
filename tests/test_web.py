@@ -258,7 +258,9 @@ class Pages(ServerCase):
     def test_unit_history_by_serial_including_one_with_a_slash(self):
         text = self.page("/serials/SN-1002")
         self.assertIn("Unit SN-1002", text)
-        self.assertIn("2 runs in all", text)
+        self.assertIn("2 runs in all.</p>", text)
+        self.assertNotIn("&lt;/p&gt;", text)
+        self.assertIn("1 run in all.</p>", self.page("/serials?serial=SN%2F1004"))
         self.assertIn('href="/serials?serial=SN%2F1004"', self.page("/runs"))
         self.assertIn("Unit SN/1004", self.page("/serials?serial=SN%2F1004"))
         self.assertIn("no runs of serial", self.page("/serials/SN-0000", 404))
@@ -288,7 +290,9 @@ class Pages(ServerCase):
         self.assertIn("50.0%", text)  # First-pass: SN-1002 failed first.
         self.assertIn("100.0%", text)  # Final: it passed on retest.
         self.assertIn("Failures", text)
-        self.assertIn("no lot with id 9", self.page("/lots/9", 404))
+        self.assertIn("no lot named &#x27;9&#x27;", self.page("/lots/9", 404))
+        # By name too, ignoring case, as every lot option on the command line takes it.
+        self.assertIn("Lot L2026-11-01", self.page("/lots/l2026-11-01"))
 
     def test_stations_instruments_products_and_audit(self):
         text = self.page("/stations")
@@ -308,6 +312,10 @@ class Pages(ServerCase):
         self.assertIn("Fake regulator", text)
         self.assertIn("final_check", text)
         self.assertIn("3 runs recorded as this product", text)
+        text = self.page("/products/pn-100-a")
+        self.assertIn("<h1>Product PN-100-A</h1>", text, "named as it was added, whatever case the address used")
+        self.assertIn("3 runs recorded as this product", text)
+        self.assertIn("Instrument PSU-0001", self.page("/instruments/psu-0001"))
         text = self.page("/audit")
         self.assertIn("instrument:PSU-0001", text)
         self.assertIn("Operator A", text)
@@ -385,7 +393,8 @@ class Api(ServerCase):
         self.assertEqual(detail["units"]["final_yield"], 1.0)
         self.assertEqual(detail["pareto"]["rows"][0]["runs"], 1)
         self.assertEqual([unit["serial"] for unit in detail["unit_results"]], ["SN-1001", "SN-1002"])
-        self.assertEqual(self.json("/api/lots/9", 404)["error"]["message"], "no lot with id 9")
+        self.assertEqual(self.json("/api/lots/9", 404)["error"]["message"], "no lot named '9' and none with that id")
+        self.assertEqual(self.json("/api/lots/L2026-11-01")["unit_results"], detail["unit_results"])
         station = self.json("/api/stations")["stations"][0]
         self.assertEqual([role["asset_tag"] for role in station["roles"]], ["DMM-0001", "PSU-0001"])
         self.assertEqual(len(self.json("/api/instruments")["instruments"]), 2)
@@ -500,6 +509,28 @@ class Security(ServerCase):
         self.assertEqual(code, 415)
         status, _ = self.raw(b"POST /launch HTTP/1.0\r\nHost: 127.0.0.1:%d\r\nOrigin: http://127.0.0.1:%d\r\n\r\n" % (self.app.port, self.app.port))
         self.assertEqual(status, 411)
+
+    def test_a_refused_body_still_gets_its_answer_and_not_a_reset(self):
+        # A client still sending a body the server has already refused used to get its connection reset,
+        # and so never saw the 413. The rest of the body arrives after the server has decided.
+        body = b"token=" + b"x" * 200000
+        head = (
+            b"POST /launch HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nOrigin: %s\r\n"
+            b"Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n"
+        ) % (self.app.port, self.base.encode("ascii"), len(body))
+        with socket.create_connection(("127.0.0.1", self.app.port), timeout=10) as sock:
+            sock.sendall(head + body[:1000])
+            time.sleep(0.3)
+            sock.sendall(body[1000:])
+            chunks = []
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        answer = b"".join(chunks)
+        self.assertTrue(answer.startswith(b"HTTP/1.0 413 "), answer[:200])
+        self.assertIn(b"at most", answer)
 
     def test_head_gives_the_headers_without_a_body(self):
         status, answer = self.raw(b"HEAD /runs HTTP/1.0\r\nHost: 127.0.0.1:%d\r\n\r\n" % self.app.port)

@@ -102,8 +102,8 @@ the reason `abandoned: the process ended without finishing`. Its steps are close
 closes them when a run ends early: a step that was running becomes `error` with that reason, and a step
 that had not started becomes `skipped` with `not run:` and the reason. Its finish time is set to the
 last time anything was recorded for it, which is the nearest record of when its process stopped. Each
-run marked writes one audit entry, action `run.mark_abandoned`, subject `run:<uuid>`, in the same
-transaction as the change. A run that finishes while the command is looking at it is left alone.
+run marked writes one audit entry, action `run.mark-abandoned`, subject `run:<uuid>`, in the same
+transaction as the change, naming `--actor` (default: your login name). A run that finishes while the command is looking at it is left alone.
 `--dry-run` lists the runs and changes nothing; `--json` gives the same list.
 
 `--older-than` must be above 0, and has no default: choose a time longer than your longest run.

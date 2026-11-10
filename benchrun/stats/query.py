@@ -45,13 +45,15 @@ class Selection:
         params: List[Any] = []
         for column, value in (
             ("plan_name", self.plan),
-            ("product", self.product),
-            ("station", self.station),
             ("lot_id", self.lot_id),
             ("serial", self.serial),
         ):
             if value is not None:
                 clauses.append(f"{column} = ?")
+                params.append(value)
+        for column, value in (("product", self.product), ("station", self.station)):
+            if value is not None:  # Part numbers and station names are unique ignoring case.
+                clauses.append(f"{column} = ? COLLATE NOCASE")
                 params.append(value)
         if self.serial_prefix is not None:
             # Not LIKE, which ignores case and treats % and _ in a serial as wildcards.

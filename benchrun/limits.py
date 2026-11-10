@@ -8,7 +8,7 @@ from typing import Optional
 
 PASS = "pass"
 FAIL = "fail"
-INFO = "info"  # Recorded for traceability; carries no limits, cannot fail a unit.
+INFO = "info"  # Recorded for the record; carries no limits, cannot fail a unit.
 ERROR = "error"  # The measurement could not be taken.
 
 

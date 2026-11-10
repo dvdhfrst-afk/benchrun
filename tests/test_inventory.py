@@ -77,8 +77,15 @@ class AddAndList(InventoryCase):
             },
         )  # fmt: skip
         [entry] = self.entries()
-        self.assertEqual((entry["action"], entry["subject"], entry["actor"]), ("add", "instrument:PSU-0001", "Operator A"))
+        self.assertEqual((entry["action"], entry["subject"], entry["actor"]), ("instrument.add", "instrument:PSU-0001", "Operator A"))
         self.assertEqual(entry["detail"]["model"], "PS-100")
+
+    def test_the_actor_defaults_to_the_login_name_as_on_every_command_that_changes_records(self):
+        with mock.patch.dict("os.environ", {"USER": "Operator Z", "USERNAME": "Operator Z"}):
+            self.add("PSU-0002", "psu")
+            self.ok("station", "create", "LINE-9")
+        self.add("PSU-0003", "psu", "--actor", "")
+        self.assertEqual([e["actor"] for e in reversed(self.entries())], ["Operator Z", "Operator Z", ""])
 
     def test_addresses_are_checked_like_plan_addresses_and_written_in_full(self):
         self.add("A-1", "dmm", "--address", "[2001:db8::5]:6000")
@@ -131,7 +138,7 @@ class AddAndList(InventoryCase):
         self.assertIn("unknown driver", self.refused("instrument", "list", "--driver", "toaster"))
 
     def test_reading_commands_need_an_existing_database(self):
-        for argv in (("instrument", "list"), ("instrument", "show", "X"), ("instrument", "export", str(self.folder / "x.csv")), ("audit",)):
+        for argv in (("instrument", "list"), ("instrument", "show", "X"), ("instrument", "export", "--out", str(self.folder / "x.csv")), ("audit",)):
             with self.subTest(argv):
                 self.assertIn("no results database", self.refused(*argv))
         self.assertFalse(self.db.exists())
@@ -158,13 +165,13 @@ class EditRetireReactivate(InventoryCase):
         self.assertIn("model 'PS-100' -> 'PS-200'", out)
         row = self.record("PSU-0001")
         self.assertEqual((row["model"], row["location"]), ("PS-200", ""))
-        entry = self.entries(action="edit")[0]
+        entry = self.entries(action="instrument.edit")[0]
         self.assertEqual(entry["detail"], {"model": ["PS-100", "PS-200"], "location": ["Lab 1", ""]})
         self.assertEqual(entry["actor"], "Operator B")
 
     def test_edit_with_the_same_values_writes_nothing(self):
         self.assertIn("Nothing changed", self.ok("instrument", "edit", "PSU-0001", "--model", "PS-100"))
-        self.assertFalse(self.entries(action="edit"))
+        self.assertFalse(self.entries(action="instrument.edit"))
 
     def test_edit_needs_something_to_change_and_valid_values(self):
         self.assertIn("nothing to change", self.refused("instrument", "edit", "PSU-0001"))
@@ -189,12 +196,12 @@ class EditRetireReactivate(InventoryCase):
         self.assertEqual(
             actions,
             [
-                ("add", "active", None),
-                ("retire", ["active", "retired"], "Fan noise"),
-                ("edit", None, None),
-                ("reactivate", ["retired", "active"], None),
-                ("edit", ["active", "in-repair"], None),
-                ("reactivate", ["in-repair", "active"], "repaired"),
+                ("instrument.add", "active", None),
+                ("instrument.retire", ["active", "retired"], "Fan noise"),
+                ("instrument.edit", None, None),
+                ("instrument.reactivate", ["retired", "active"], None),
+                ("instrument.edit", ["active", "in-repair"], None),
+                ("instrument.reactivate", ["in-repair", "active"], "repaired"),
             ],
         )
 
@@ -231,7 +238,7 @@ class ImportFiles(InventoryCase):
         self.assertEqual(self.record("PSU-0001")["driver"], "psu")  # An empty driver cell keeps it.
         self.assertEqual(self.record("LOAD-0001")["status"], "in-repair")
         new = self.entries(actor="Operator A")
-        self.assertEqual(sorted((e["action"], e["subject"]) for e in new), [("add", "instrument:LOAD-0001"), ("edit", "instrument:PSU-0001")])
+        self.assertEqual(sorted((e["action"], e["subject"]) for e in new), [("instrument.add", "instrument:LOAD-0001"), ("instrument.edit", "instrument:PSU-0001")])
         self.assertTrue(all(e["detail"]["file"] == "inv.csv" for e in new))
         code, out, _ = self.import_file(path)
         self.assertIn("0 added, 0 changed, 3 unchanged", out)
@@ -373,7 +380,7 @@ class ExportFiles(InventoryCase):
 
     def test_csv_neutralises_formulas_and_imports_back_unchanged(self):
         path = self.folder / "inv.csv"
-        self.assertIn("Wrote 2 instruments", self.ok("instrument", "export", path))
+        self.assertIn("Wrote 2 instruments", self.ok("instrument", "export", "--out", path))
         text = path.read_text(encoding="utf-8")
         self.assertIn("'=HYPERLINK", text)
         self.assertIn("'-5 V rail", text)
@@ -392,7 +399,7 @@ class ExportFiles(InventoryCase):
 
     def test_json_export_with_filters_round_trips(self):
         path = self.folder / "inv.json"
-        self.ok("instrument", "export", path, "--status", "in-repair")
+        self.ok("instrument", "export", "--out", path, "--status", "in-repair")
         data = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual([row["asset_tag"] for row in data["instruments"]], ["DMM-0001"])
         self.assertEqual(set(data["instruments"][0]), set(inventory.FIELDS))
@@ -400,12 +407,12 @@ class ExportFiles(InventoryCase):
 
     def test_export_refuses_to_replace_a_file_and_to_write_nothing(self):
         path = self.write("inv.csv", "keep me")
-        self.assertIn("--force", self.refused("instrument", "export", path))
+        self.assertIn("--force", self.refused("instrument", "export", "--out", path))
         self.assertEqual(path.read_text(encoding="utf-8"), "keep me")
-        self.ok("instrument", "export", path, "--force")
-        self.assertIn("nothing was written", self.refused("instrument", "export", self.folder / "none.csv", "--driver", "smu"))
+        self.ok("instrument", "export", "--out", path, "--force")
+        self.assertIn("nothing was written", self.refused("instrument", "export", "--out", self.folder / "none.csv", "--driver", "smu"))
         self.assertFalse((self.folder / "none.csv").exists())
-        self.assertIn("--format", self.refused("instrument", "export", self.folder / "inv.txt"))
+        self.assertIn("--format", self.refused("instrument", "export", "--out", self.folder / "inv.txt"))
 
 
 class Help(unittest.TestCase):
@@ -431,7 +438,7 @@ class AuditCommand(InventoryCase):
     def setUp(self):
         super().setUp()
         self.add("PSU-0001", "psu", "--actor", "Operator A")
-        self.add("DMM-0001", "dmm")
+        self.add("DMM-0001", "dmm", "--actor", "")
         self.ok("instrument", "retire", "PSU-0001", "--actor", "Operator B", "--reason", "worn")
         self.ok("station", "create", "LINE-1", "--actor", "Operator A")
 
@@ -440,11 +447,11 @@ class AuditCommand(InventoryCase):
 
     def test_filters(self):
         self.assertEqual(len(self.entry_ids()), 4)
-        self.assertEqual(self.entry_ids("--subject", "instrument:PSU-0001"), [("retire", "instrument:PSU-0001"), ("add", "instrument:PSU-0001")])
-        self.assertEqual(self.entry_ids("--subject", "station:"), [("create", "station:LINE-1")])
-        self.assertEqual(self.entry_ids("--action", "add"), [("add", "instrument:DMM-0001"), ("add", "instrument:PSU-0001")])
-        self.assertEqual(self.entry_ids("--actor", "Operator B"), [("retire", "instrument:PSU-0001")])
-        self.assertEqual(self.entry_ids("--actor", ""), [("add", "instrument:DMM-0001")])
+        self.assertEqual(self.entry_ids("--subject", "instrument:PSU-0001"), [("instrument.retire", "instrument:PSU-0001"), ("instrument.add", "instrument:PSU-0001")])
+        self.assertEqual(self.entry_ids("--subject", "station:"), [("station.create", "station:LINE-1")])
+        self.assertEqual(self.entry_ids("--action", "instrument.add"), [("instrument.add", "instrument:DMM-0001"), ("instrument.add", "instrument:PSU-0001")])
+        self.assertEqual(self.entry_ids("--actor", "Operator B"), [("instrument.retire", "instrument:PSU-0001")])
+        self.assertEqual(self.entry_ids("--actor", ""), [("instrument.add", "instrument:DMM-0001")])
         self.assertEqual(len(self.entry_ids("--limit", "2")), 2)
         self.assertEqual(self.entry_ids("--since", "2999-01-01"), [])
         self.assertEqual(len(self.entry_ids("--until", "2999-01-01", "--since", "2000-01-01")), 4)

@@ -37,6 +37,7 @@ from benchrun.console import (
     count as _count,
     table as _table,
     fmt as _fmt,
+    add_record_filter_args,
     DEFAULT_DB,
     EXIT_ABORTED,
     EXIT_FAIL,  # noqa: F401 (scripts and tests take every exit code from here)
@@ -263,7 +264,10 @@ def cmd_export(args: argparse.Namespace) -> int:
     since = _utc_time(args.since, "--since")
     until = _utc_time(args.until, "--until", end_of_day=True)
     with _open_store(args.db) as store:
-        rows = store.find_runs(serial=args.serial, plan=args.plan, status=args.status, since=since, until=until)
+        lot_id = lots.find(store.conn, args.lot)["id"] if args.lot is not None else None
+        rows = store.find_runs(
+            serial=args.serial, plan=args.plan, status=args.status, since=since, until=until, station=args.station, product=args.product, lot_id=lot_id
+        )
         run_ids = [row["id"] for row in reversed(rows)]
         if not run_ids:
             _complain("No matching runs, so nothing was written.")
@@ -569,10 +573,8 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     history.add_argument("--serial", help="only this unit")
     history.add_argument("--plan", help="only this plan; also shows yield")
-    history.add_argument("--product", metavar="PART_NUMBER", help="only runs tested as this product")
-    history.add_argument("--lot", metavar="NAME", help="only runs in this lot, by name or numeric id")
+    add_record_filter_args(history)
     history.add_argument("--status", choices=("pass", "fail", "aborted", "running"), help="only runs with this result")
-    history.add_argument("--station", metavar="NAME", help="only runs recorded on this station")
     history.add_argument("--instrument", metavar="TEXT", help="only runs where an instrument's *IDN? response contains this")
     history.add_argument("--since", metavar="TIME", help="only runs started at or after this UTC date or time, YYYY-MM-DD[THH:MM]")
     history.add_argument("--until", metavar="TIME", help="only runs started at or before this UTC date or time")
@@ -604,6 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     export.add_argument("--serial", help="only this unit")
     export.add_argument("--plan", help="only this plan")
+    add_record_filter_args(export)
     export.add_argument("--status", choices=("pass", "fail", "aborted", "running"), help="only runs with this result")
     export.add_argument("--since", metavar="TIME", help="only runs started at or after this UTC date or time")
     export.add_argument("--until", metavar="TIME", help="only runs started at or before this UTC date or time")

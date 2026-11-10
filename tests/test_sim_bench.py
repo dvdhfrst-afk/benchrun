@@ -149,7 +149,7 @@ class Stimulus(BenchCase):
         self.assertAlmostEqual(self.scope.number("MEAS:VRMS? CHAN2"), 0.35355, delta=0.005)
         self.assertAlmostEqual(self.scope.number("MEAS:FREQ? CHAN2"), 1000.0, delta=20.0)
 
-    def test_scope_overload_when_the_trace_leaves_the_screen(self):
+    def test_scope_overload_when_the_signal_leaves_the_screen(self):
         self.power()
         self.scope.send("CHAN1:SCAL 0.1;COUP DC")
         self.assertGreaterEqual(self.scope.number("MEAS:VRMS? CHAN1"), 9.9e37)

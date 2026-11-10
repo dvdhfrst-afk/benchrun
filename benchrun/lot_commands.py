@@ -14,6 +14,8 @@ from benchrun.console import (
     EXIT_ABORTED,
     EXIT_FAIL,
     EXIT_PASS,
+    actor_of,
+    add_actor_arg,
     check_label,
     check_serial,
     complain,
@@ -26,7 +28,7 @@ from benchrun.errors import PlanError
 from benchrun.files import atomic_write_text
 from benchrun.inventory import existing_store
 from benchrun.plan import load_plan
-from benchrun.product_commands import actor_of, load_product
+from benchrun.product_commands import load_product
 from benchrun.products import Product
 from benchrun.reports import lot_report
 from benchrun.stats import charts
@@ -388,7 +390,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def _db(parser: argparse.ArgumentParser, changes: bool = False) -> None:
     parser.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     if changes:
-        parser.add_argument("--actor", help="who to name in the audit log (default: your login name)")
+        add_actor_arg(parser)
 
 
 def _name(parser: argparse.ArgumentParser) -> None:

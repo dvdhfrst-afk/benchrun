@@ -290,7 +290,7 @@ before writing anything, with exit code 2 and this message:
 ```text
 Cannot continue:
   the Measurements sheet would need more than 1,048,576 rows, the most a worksheet can hold
-  narrow the export with --serial, --plan, --status, --since or --until, or use --format csv or jsonl
+  narrow the export with --serial, --plan, --product, --lot, --station, --status, --since or --until, or use --format csv or jsonl
 ```
 
 ## Sample files

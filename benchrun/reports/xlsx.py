@@ -112,7 +112,7 @@ class Sheet:
             raise PlanError(
                 [
                     f"the {self.name} sheet would need more than {MAX_ROWS:,} rows, the most a worksheet can hold",
-                    "narrow the export with --serial, --plan, --status, --since or --until, or use --format csv or jsonl",
+                    "narrow the export with --serial, --plan, --product, --lot, --station, --status, --since or --until, or use --format csv or jsonl",
                 ]
             )
         self.rows += 1

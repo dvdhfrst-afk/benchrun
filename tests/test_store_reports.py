@@ -188,7 +188,7 @@ class Reports(BenchTestCase):
         self.assertEqual(suite.get("errors"), "0")
         self.assertEqual(suite.get("skipped"), "0")
 
-    def test_junit_properties_carry_traceability(self):
+    def test_junit_properties_carry_the_run_identity(self):
         properties = {p.get("name"): p.get("value") for p in self.suite(self.pass_detail()).iter("property")}
         self.assertEqual(properties["serial"], "SN-OK")
         self.assertEqual(properties["run_status"], "pass")

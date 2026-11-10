@@ -36,16 +36,22 @@ def subject(lot: Dict[str, Any]) -> str:
 
 
 def get(conn: sqlite3.Connection, name: str) -> Optional[Dict[str, Any]]:
-    row = conn.execute(f"SELECT {_COLUMNS} FROM lots WHERE name = ?", (name,)).fetchone()
+    row = conn.execute(f"SELECT {_COLUMNS} FROM lots WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
     return None if row is None else dict(row)
 
 
-def find(conn: sqlite3.Connection, text: str) -> Dict[str, Any]:
-    """A lot by its name, or by its numeric id when no lot has that name."""
+def lookup(conn: sqlite3.Connection, text: str) -> Optional[Dict[str, Any]]:
+    """A lot by its name, or by its numeric id when no lot has that name; None if neither."""
     lot = get(conn, text)
-    if lot is None and text.isdigit() and len(text) <= 18:  # Longer would not fit an SQLite integer.
+    if lot is None and text.isascii() and text.isdigit() and len(text) <= 18:  # Longer would not fit an SQLite integer.
         row = conn.execute(f"SELECT {_COLUMNS} FROM lots WHERE id = ?", (int(text),)).fetchone()
         lot = None if row is None else dict(row)
+    return lot
+
+
+def find(conn: sqlite3.Connection, text: str) -> Dict[str, Any]:
+    """A lot by its name or numeric id, as every command that takes a lot accepts it."""
+    lot = lookup(conn, text)
     if lot is None:
         raise PlanError([f"no lot named {text!r} in this database; see: benchrun lot list"])
     return lot
@@ -110,8 +116,10 @@ def create(
     conn: sqlite3.Connection, name: str, product: str, plan_name: str, quantity: Optional[int], note: str, actor: str
 ) -> Dict[str, Any]:
     with writing(conn):
-        if get(conn, name) is not None:
-            raise PlanError([f"there is already a lot named {name}; choose another name, or see: benchrun lot show {name}"])
+        existing = get(conn, name)
+        if existing is not None:  # Lot names are unique ignoring case.
+            taken = existing["name"]
+            raise PlanError([f"there is already a lot named {taken}; choose another name, or see: benchrun lot show {taken}"])
         conn.execute(
             "INSERT INTO lots (name, product, plan_name, quantity, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (name, product, plan_name, quantity, OPEN, note, now_iso()),

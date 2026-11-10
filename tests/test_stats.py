@@ -346,6 +346,9 @@ class Queries(BenchTestCase):
         self.assertEqual(values(plan="p"), [a, b, c])
         self.assertEqual(values(product="PN-100-A"), [a, c, d])
         self.assertEqual(values(plan="p", station="LINE-1"), [a, c])
+        # Part numbers and station names ignore case everywhere, as history and the web pages do.
+        self.assertEqual(values(product="pn-100-a"), [a, c, d])
+        self.assertEqual(values(plan="p", station="line-1"), [a, c])
         self.assertEqual(values(plan="p", lot_id=lot), [a])
         self.assertEqual(values(plan="p", serial_prefix="SN-"), [a, b])
         self.assertEqual(values(plan="p", serial_prefix="SN_"), [c])  # Not a wildcard.

@@ -143,7 +143,7 @@ class Launcher:
             chosen["operator"] = check_label(form.get("operator", "").strip(), "operator")
         except PlanError as exc:
             problems.extend(exc.problems)
-        if product and conn.execute("SELECT 1 FROM products WHERE part_number = ?", (product,)).fetchone() is None:
+        if product and conn.execute("SELECT 1 FROM products WHERE part_number = ? COLLATE NOCASE", (product,)).fetchone() is None:
             problems.append(f"no product {product!r} in this database")
         chosen["product"] = product
         found = stations.get_station(conn, station) if station else None

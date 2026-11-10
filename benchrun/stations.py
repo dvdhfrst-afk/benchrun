@@ -15,12 +15,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from benchrun import audit
-from benchrun.console import EXIT_ABORTED, EXIT_PASS, check_label, count, open_store, parse_pairs, positive_number, say, table
+from benchrun.console import EXIT_ABORTED, EXIT_PASS, actor_of, add_actor_arg, check_label, count, open_store, parse_pairs, positive_number, say, table
 from benchrun.drivers import DRIVERS
 from benchrun.errors import InstrumentFault, PlanError
 from benchrun.files import atomic_write_text
 from benchrun.inventory import (
-    add_actor_arg,
     add_db_arg,
     address_owner,
     check_driver,
@@ -388,7 +387,7 @@ def apply_station_import(conn: sqlite3.Connection, planned: Mapping[str, Any], a
         "location": station["location"],
         "roles": {role["role"]: role["asset_tag"] for role in planned["roles"]},
     }
-    audit.record(conn, "import", f"station:{station['name']}", detail, actor)
+    audit.record(conn, "station.import", f"station:{station['name']}", detail, actor)
 
 
 # Commands --------------------------------------------------------------
@@ -405,14 +404,14 @@ _ROLE_HEADERS = ("role", "asset tag", "driver", "address", "status", "timeout (s
 
 
 def cmd_create(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     name = check_name(args.name, "station name")
     description = check_label(args.description, "--description")
     location = check_label(args.location, "--location")
     with open_store(args.db) as store, writing(store.conn) as conn:
         _refuse_existing_station(conn, name)
         insert_station(conn, name, description, location)
-        audit.record(conn, "create", f"station:{name}", {"description": description, "location": location}, actor)
+        audit.record(conn, "station.create", f"station:{name}", {"description": description, "location": location}, actor)
     say(f"Created station {name}. Give it instruments with: benchrun station assign {name} ROLE TAG")
     return EXIT_PASS
 
@@ -453,7 +452,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_assign(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     role = check_role(args.role)
     timeout = check_timeout(args.timeout)
     pattern = check_pattern(args.expect_idn)
@@ -483,7 +482,7 @@ def cmd_assign(args: argparse.Namespace) -> int:
         detail: Dict[str, Any] = {"role": role, **after}
         if before is not None:
             detail["replaced"] = {key: before[key] for key in after}
-        audit.record(conn, "assign", f"station:{station['name']}", detail, actor)
+        audit.record(conn, "station.assign", f"station:{station['name']}", detail, actor)
     replaced = f", replacing {before['asset_tag']}" if before is not None and before["asset_tag"] != tag else ""
     say(f"Station {station['name']}: {role} is {tag} at {instrument['address']}{replaced}")
     if instrument["status"] != "active":
@@ -492,7 +491,7 @@ def cmd_assign(args: argparse.Namespace) -> int:
 
 
 def cmd_unassign(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     with open_store(args.db) as store, writing(store.conn) as conn:
         station = require_station(conn, args.name)
         roles = {row["role"]: row for row in station_roles(conn, station["id"])}
@@ -500,13 +499,13 @@ def cmd_unassign(args: argparse.Namespace) -> int:
             raise PlanError([f"station {station['name']} has no role {args.role!r}; it has: {', '.join(roles) or 'none'}"])
         conn.execute("DELETE FROM station_roles WHERE station_id = ? AND role = ?", (station["id"], args.role))
         _touch(conn, station["id"])
-        audit.record(conn, "unassign", f"station:{station['name']}", {"role": args.role, "asset_tag": roles[args.role]["asset_tag"]}, actor)
+        audit.record(conn, "station.unassign", f"station:{station['name']}", {"role": args.role, "asset_tag": roles[args.role]["asset_tag"]}, actor)
     say(f"Station {station['name']}: {args.role} no longer has an instrument (it was {roles[args.role]['asset_tag']})")
     return EXIT_PASS
 
 
 def cmd_rename(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     new = check_name(args.new, "station name")
     with open_store(args.db) as store, writing(store.conn) as conn:
         station = require_station(conn, args.name)
@@ -517,7 +516,7 @@ def cmd_rename(args: argparse.Namespace) -> int:
             say(f"Nothing changed: the station is already called {new}.")
             return EXIT_PASS
         conn.execute("UPDATE stations SET name = ?, updated_at = ? WHERE id = ?", (new, now_iso(), station["id"]))
-        audit.record(conn, "rename", f"station:{new}", {"from": station["name"], "to": new}, actor)
+        audit.record(conn, "station.rename", f"station:{new}", {"from": station["name"], "to": new}, actor)
         runs = station_runs(conn, station["name"])
     say(f"Renamed station {station['name']} to {new}.")
     if runs:
@@ -526,7 +525,7 @@ def cmd_rename(args: argparse.Namespace) -> int:
 
 
 def cmd_delete(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     with open_store(args.db) as store, writing(store.conn) as conn:
         station = require_station(conn, args.name)
         runs = station_runs(conn, station["name"])
@@ -541,7 +540,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
             "roles": {row["role"]: row["asset_tag"] for row in roles},
             "runs": runs,
         }
-        audit.record(conn, "delete", f"station:{station['name']}", detail, actor)
+        audit.record(conn, "station.delete", f"station:{station['name']}", detail, actor)
     kept = f"; the {count(runs, 'run')} recorded on it are kept" if runs else ""
     say(f"Deleted station {station['name']}{kept}. Its instruments stay in the inventory.")
     return EXIT_PASS
@@ -561,7 +560,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_import(args: argparse.Namespace) -> int:
-    actor = check_label(args.actor, "--actor")
+    actor = actor_of(args)
     given = parse_pairs(args.driver, "--driver")
     plan_drivers = {}
     if args.plan:
@@ -687,7 +686,7 @@ def add_commands(subparsers: Any) -> None:
 
     export = commands.add_parser("export", help="write a station file that run --station FILE and station import read")
     export.add_argument("name", help="station name")
-    export.add_argument("file", help="the JSON file to write")
+    export.add_argument("--out", dest="file", metavar="FILE", required=True, help="the JSON file to write")
     export.add_argument("--force", action="store_true", help="replace the file if it already exists")
     add_db_arg(export)
     export.set_defaults(func=cmd_export)

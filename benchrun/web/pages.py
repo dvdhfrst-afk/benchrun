@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from benchrun import audit, maintenance, products
 from benchrun import lots as lots_module
+from benchrun.console import count
 from benchrun.inventory import STATUSES
 from benchrun.reports import REGISTRY
 from benchrun.reports.html_report import render_body
@@ -243,7 +244,7 @@ def serial(site: Site, conn: sqlite3.Connection, serial_number: str, query: Mapp
         f"Unit {serial_number}",
         "runs",
         Markup(f"<h1>Unit {esc(serial_number)}</h1>"),
-        join([Markup("<p>Latest result: "), _result(latest), f" in run {latest['id']}, {when(latest['started_at'])}, {total} runs in all.</p>"]),
+        join([Markup("<p>Latest result: "), _result(latest), f" in run {latest['id']}, {when(latest['started_at'])}, {count(total, 'run')} in all.", Markup("</p>")]),
         _downloads(chosen),
         runs_table(rows),
         pager(*item_target("/serials", serial_number, "serial"), paging.describe(len(rows), total)),
@@ -339,11 +340,12 @@ def lots(site: Site, conn: sqlite3.Connection, query: Mapping[str, str]) -> str:
     return _page(site, "Lots", "lots", Markup("<h1>Lots</h1>"), body)
 
 
-def lot(site: Site, conn: sqlite3.Connection, lot_id: int) -> str:
-    summary = data.lot_summary(conn, lot_id)
+def lot(site: Site, conn: sqlite3.Connection, name_or_id: str) -> str:
+    summary = data.lot_summary(conn, name_or_id)
     if summary is None:
-        raise NotFound(f"no lot with id {lot_id}")
+        raise NotFound(f"no lot named {name_or_id!r} and none with that id")
     found, units, total = summary["lot"], summary["units"], summary["runs"]["selected"]
+    lot_id = found["id"]
     info = facts(
         (
             ("Status", found["status"]),
@@ -485,6 +487,7 @@ def product(site: Site, conn: sqlite3.Connection, part_number: str) -> str:
     found = data.product_detail(conn, part_number)
     if found is None:
         raise NotFound(f"no product {part_number!r}")
+    part_number = found["part_number"]  # As it was added, whatever case the address used.
     info = facts(
         (
             ("Description", found["description"]),

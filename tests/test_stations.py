@@ -86,12 +86,12 @@ class Building(StationCase):
         out = self.ok("station", "assign", "LINE-1", "supply", "PSU-0002", "--timeout", "2.5", "--expect-idn", "PSU", "--actor", "Operator A")
         self.assertIn("replacing PSU-0001", out)
         self.assertIn("is in-repair", out)
-        entry = self.entries(action="assign")[0]
+        entry = self.entries(action="station.assign")[0]
         self.assertEqual(entry["actor"], "Operator A")
         self.assertEqual(entry["detail"]["replaced"], {"asset_tag": "PSU-0001", "timeout_s": None, "expect_idn": None})
         self.assertEqual((entry["detail"]["asset_tag"], entry["detail"]["timeout_s"]), ("PSU-0002", 2.5))
         self.ok("station", "unassign", "LINE-1", "supply")
-        self.assertEqual(self.entries(action="unassign")[0]["detail"], {"role": "supply", "asset_tag": "PSU-0002"})
+        self.assertEqual(self.entries(action="station.unassign")[0]["detail"], {"role": "supply", "asset_tag": "PSU-0002"})
         self.assertIn("has no role 'supply'", self.refused("station", "unassign", "LINE-1", "supply"))
         self.assertEqual(len(self.entries(subject="station:LINE-1")), 5)
 
@@ -100,7 +100,7 @@ class Building(StationCase):
         self.assertEqual(self.run_quick("--station-name", "LINE-1")[0], EXIT_PASS)
         out = self.ok("station", "rename", "LINE-1", "LINE-2", "--actor", "Operator A")
         self.assertIn("keep the name LINE-1", out)
-        self.assertEqual(self.entries(action="rename")[0]["subject"], "station:LINE-2")
+        self.assertEqual(self.entries(action="station.rename")[0]["subject"], "station:LINE-2")
         self.assertIn("SN-1001", self.ok("history", "--station", "LINE-1"))
         self.assertIn("No matching runs", self.ok("history", "--station", "LINE-2"))
         self.ok("station", "create", "LINE-3")
@@ -118,7 +118,7 @@ class Building(StationCase):
         self.assertEqual(self.query("SELECT station FROM runs"), [("LINE-1",)])
         self.assertIn("SN-1001", self.ok("history", "--station", "LINE-1"))
         self.assertIsNotNone(self.record("PSU-0001"))
-        detail = self.entries(action="delete")[0]["detail"]
+        detail = self.entries(action="station.delete")[0]["detail"]
         self.assertEqual((detail["roles"], detail["runs"]), ({"dmm": "DMM-0001", "supply": "PSU-0001"}, 1))
         self.ok("station", "create", "EMPTY")
         self.assertIn("Deleted station EMPTY.", self.ok("station", "delete", "EMPTY"))
@@ -129,9 +129,9 @@ class StationFiles(StationCase):
         self.quick_station()
         self.ok("station", "assign", "LINE-1", "dmm", "DMM-0001", "--timeout", "3", "--expect-idn", "SIM-DMM")
         path = self.folder / "line1.json"
-        self.ok("station", "export", "LINE-1", path)
+        self.ok("station", "export", "LINE-1", "--out", path)
         self.assertEqual(load_addresses(path), {"dmm": self.address("dmm"), "supply": self.address("psu")})
-        self.assertIn("--force", self.refused("station", "export", "LINE-1", path))
+        self.assertIn("--force", self.refused("station", "export", "LINE-1", "--out", path))
         code, out, _ = self.run_quick("--station", path)
         self.assertEqual(code, EXIT_PASS, out)
 
@@ -139,7 +139,7 @@ class StationFiles(StationCase):
         self.quick_station()
         self.ok("station", "assign", "LINE-1", "dmm", "DMM-0001", "--timeout", "3", "--expect-idn", "SIM-DMM")
         path = self.folder / "line1.json"
-        self.ok("station", "export", "LINE-1", path)
+        self.ok("station", "export", "LINE-1", "--out", path)
         other = self.folder / "other.sqlite"
         code, out, err = call("station", "import", path, "--db", other)
         self.assertEqual(code, EXIT_PASS, out + err)
@@ -171,8 +171,8 @@ class StationFiles(StationCase):
         for tag in ("PSU-0001", "ELOAD-0001", "DMM-0001", "SCOPE-0001", "SIGGEN-0001"):
             self.assertIn(tag, out)
             self.assertEqual(self.record(tag)["location"], "Lab 2")
-        self.assertEqual(self.entries(action="import")[0]["detail"]["roles"]["gen"], "SIGGEN-0001")
-        self.assertEqual(len(self.entries(action="add", actor="Operator A")), 5)
+        self.assertEqual(self.entries(action="station.import")[0]["detail"]["roles"]["gen"], "SIGGEN-0001")
+        self.assertEqual(len(self.entries(action="instrument.add", actor="Operator A")), 5)
         self.assertIn("already exists", self.refused("station", "import", EXAMPLE_STATION, "--name", "bench-a", "--plan", PLAN))
 
     def test_import_reuses_instruments_already_at_an_address_and_numbers_new_tags_on(self):
@@ -284,7 +284,7 @@ class Checking(StationCase):
         self.ok("station", "check", "LINE-1")
         code, out, _ = call("scpi", self.address("psu"), "VOLT?")
         self.assertEqual(float(out), 7.25)
-        self.assertEqual(self.query("SELECT COUNT(*) FROM audit_log WHERE action NOT IN ('add', 'create', 'assign', 'edit')"), [(0,)])
+        self.assertEqual(self.query("SELECT COUNT(*) FROM audit_log WHERE action NOT IN ('instrument.add', 'station.create', 'station.assign', 'instrument.edit')"), [(0,)])
 
     def test_check_needs_instruments(self):
         self.ok("station", "create", "EMPTY")
