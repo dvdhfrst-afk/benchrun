@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 LOCK_WAIT_S = 30.0  # Another process may be writing to the same database.
 
 _FIRST_SCHEMA = """
@@ -86,6 +87,103 @@ _UPGRADES: Dict[int, Tuple[str, ...]] = {
         "ALTER TABLE runs ADD COLUMN note TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE runs ADD COLUMN selected_steps TEXT",
         "CREATE INDEX runs_started ON runs (started_at)",
+    ),
+    2: (
+        # Runs that can travel between databases, and what they were tested with.
+        "ALTER TABLE runs ADD COLUMN uuid TEXT",
+        "UPDATE runs SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL",
+        "CREATE UNIQUE INDEX runs_uuid ON runs (uuid)",
+        "ALTER TABLE runs ADD COLUMN station TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE runs ADD COLUMN product TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE runs ADD COLUMN lot_id INTEGER REFERENCES lots (id)",
+        "ALTER TABLE runs ADD COLUMN origin TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE runs ADD COLUMN imported_at TEXT",
+        "CREATE INDEX runs_product ON runs (product)",
+        "CREATE INDEX runs_lot ON runs (lot_id)",
+        "ALTER TABLE run_instruments ADD COLUMN asset_tag TEXT",
+        "CREATE INDEX measurements_step ON measurements (step_id)",
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "INSERT INTO meta (key, value) VALUES ('database_id', lower(hex(randomblob(16))))",
+        # The instruments a lab owns, and the stations built from them.
+        """CREATE TABLE instruments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_tag TEXT NOT NULL UNIQUE,
+            driver TEXT NOT NULL,
+            manufacturer TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            serial_number TEXT NOT NULL DEFAULT '',
+            address TEXT NOT NULL DEFAULT '',
+            location TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            notes TEXT NOT NULL DEFAULT '',
+            added_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""",
+        """CREATE TABLE stations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL DEFAULT '',
+            location TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""",
+        """CREATE TABLE station_roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            station_id INTEGER NOT NULL REFERENCES stations (id),
+            role TEXT NOT NULL,
+            instrument_id INTEGER NOT NULL REFERENCES instruments (id),
+            timeout_s REAL,
+            expect_idn TEXT,
+            UNIQUE (station_id, role)
+        )""",
+        # Part numbers, with the plan they are tested by and what differs per part.
+        """CREATE TABLE products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            part_number TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL DEFAULT '',
+            plan_file TEXT NOT NULL DEFAULT '',
+            serial_pattern TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""",
+        """CREATE TABLE product_variables (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products (id),
+            name TEXT NOT NULL,
+            value REAL NOT NULL,
+            UNIQUE (product_id, name)
+        )""",
+        """CREATE TABLE product_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products (id),
+            step TEXT NOT NULL,
+            measurement TEXT NOT NULL,
+            low REAL,
+            high REAL,
+            UNIQUE (product_id, step, measurement)
+        )""",
+        # Batches of units tested together.
+        """CREATE TABLE lots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            product TEXT NOT NULL DEFAULT '',
+            plan_name TEXT NOT NULL DEFAULT '',
+            quantity INTEGER,
+            status TEXT NOT NULL DEFAULT 'open',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            closed_at TEXT
+        )""",
+        # Who changed what outside a run.
+        """CREATE TABLE audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '{}'
+        )""",
+        "CREATE INDEX audit_log_subject ON audit_log (subject)",
     ),
 }
 
@@ -206,10 +304,11 @@ class Store:
     ) -> int:
         with self.conn:
             cursor = self.conn.execute(
-                "INSERT INTO runs (serial, plan_name, plan_version, plan_hash, plan_source, variables,"
+                "INSERT INTO runs (uuid, serial, plan_name, plan_version, plan_hash, plan_source, variables,"
                 " operator, software_version, note, selected_steps, status, started_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
                 (
+                    uuid.uuid4().hex,
                     serial,
                     plan_name,
                     plan_version,

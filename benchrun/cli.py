@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import inspect
 import json
-import math
 import os
 import re
 import signal
@@ -15,9 +15,8 @@ import sys
 import threading
 import time
 import traceback
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from benchrun import __version__
 from benchrun.drivers import DRIVERS
@@ -30,129 +29,32 @@ from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_tra
 from benchrun.sim.bench import DEFAULT_BASE_PORT, PORT_ORDER, SimBench, parse_fault
 from benchrun.sim.model import DUT_VARIANTS
 from benchrun.store import Store
+from benchrun.console import (
+    say as _say,
+    complain as _complain,
+    parse_pairs as _parse_pairs,
+    parse_variables as _parse_variables,
+    check_serial as _check_serial,
+    check_label as _check_label,
+    utc_time as _utc_time,
+    positive_number as _positive_number,
+    not_negative_number as _not_negative_number,
+    not_negative_whole as _not_negative_whole,
+    open_store as _open_store,
+    count as _count,
+    table as _table,
+    fmt as _fmt,
+    DEFAULT_DB,
+    EXIT_ABORTED,
+    EXIT_FAIL,
+    EXIT_PASS,
+    EXIT_USAGE,
+)
 
-EXIT_PASS = 0
-EXIT_FAIL = 1
-EXIT_USAGE = 2
-EXIT_ABORTED = 3
-
-DEFAULT_DB = "benchrun.sqlite"
 _EXIT_BY_STATUS = {RUN_PASS: EXIT_PASS, RUN_FAIL: EXIT_FAIL, RUN_ABORTED: EXIT_ABORTED}
-
-
-_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
-MAX_TEXT_CHARS = 2000
-
 
 _WINDOW_GOING_EVENTS = (2, 5, 6)  # Console closed, user logging off, system shutting down.
 _WINDOW_WAIT_S = 4.5
-
-
-def _print_to(stream_name: str, text: str) -> None:
-    """Text can hold what an instrument or a file said, so nothing in it may steer the terminal."""
-    cleaned = _CONTROL.sub("?", text)
-    stream = getattr(sys, stream_name)
-    try:
-        try:
-            print(cleaned, file=stream, flush=True)
-        except UnicodeEncodeError:
-            print(cleaned.encode("ascii", "backslashreplace").decode("ascii"), file=stream, flush=True)
-    except (OSError, ValueError):
-        # The reader went away, as with "| head". That must not change a result.
-        setattr(sys, stream_name, open(os.devnull, "w", encoding="utf-8"))
-
-
-def _say(text: str = "") -> None:
-    _print_to("stdout", text)
-
-
-def _complain(text: str) -> None:
-    _print_to("stderr", text)
-
-
-def _parse_pairs(items: Optional[Iterable[str]], flag: str) -> Dict[str, str]:
-    pairs: Dict[str, str] = {}
-    for item in items or []:
-        name, sep, value = item.partition("=")
-        if not sep or not name or not value:
-            raise PlanError([f"{flag} expects name=value, got {item!r}"])
-        pairs[name] = value
-    return pairs
-
-
-def _parse_variables(items: Optional[Iterable[str]]) -> Dict[str, float]:
-    variables = {}
-    for name, value in _parse_pairs(items, "--set").items():
-        try:
-            variables[name] = float(value)
-        except ValueError:
-            raise PlanError([f"--set {name}: {value!r} is not a number"]) from None
-    return variables
-
-
-def _check_serial(serial: str) -> str:
-    cleaned = serial.strip()
-    if not cleaned or len(cleaned) > 128 or _CONTROL.search(cleaned) or "\n" in cleaned or "\t" in cleaned:
-        raise PlanError([f"serial number {serial!r} must be 1 to 128 printable characters"])
-    return cleaned
-
-
-def _check_label(text: str, flag: str) -> str:
-    if len(text) > MAX_TEXT_CHARS or _CONTROL.search(text) or "\n" in text:
-        raise PlanError([f"{flag} must be one line of at most {MAX_TEXT_CHARS} printable characters"])
-    return text
-
-
-def _utc_time(text: Optional[str], flag: str, end_of_day: bool = False) -> Optional[str]:
-    """Turn a date or a date and time, taken as UTC, into the form the database stores."""
-    if text is None:
-        return None
-    for pattern in ("%Y-%m-%d", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            parsed = datetime.strptime(text, pattern)
-        except ValueError:
-            continue
-        if pattern == "%Y-%m-%d" and end_of_day:
-            return parsed.strftime("%Y-%m-%dT23:59:59.999+00:00")
-        return parsed.strftime("%Y-%m-%dT%H:%M:%S.000+00:00")
-    raise PlanError([f"{flag}: {text!r} is not a time; use YYYY-MM-DD or YYYY-MM-DDTHH:MM (UTC)"])
-
-
-def _positive_number(text: str) -> float:
-    try:
-        value = float(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
-    if not math.isfinite(value) or value <= 0:
-        raise argparse.ArgumentTypeError(f"{text} must be a finite number above 0")
-    return value
-
-
-def _not_negative_number(text: str) -> float:
-    try:
-        value = float(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
-    if not math.isfinite(value) or value < 0:
-        raise argparse.ArgumentTypeError(f"{text} must be a finite number, 0 or above")
-    return value
-
-
-def _not_negative_whole(text: str) -> int:
-    try:
-        value = int(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number") from None
-    if value < 0:
-        raise argparse.ArgumentTypeError(f"{text} must be 0 or above")
-    return value
-
-
-def _open_store(path: str) -> Store:
-    store = Store(path)
-    if store.upgrade_note:
-        _complain(store.upgrade_note)
-    return store
 
 
 def _hold_window_open(finished: threading.Event) -> Callable[[], None]:
@@ -245,27 +147,6 @@ def _ask_operator(text: str) -> None:
 
 def _confirm_automatically(text: str) -> None:
     _say(f"OPERATOR: {text} (continued automatically)")
-
-
-def _count(number: int, word: str) -> str:
-    return f"{number} {word}" if number == 1 else f"{number} {word}s"
-
-
-def _table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> str:
-    text_rows = [["" if cell is None else str(cell) for cell in row] for row in rows]
-    widths = [len(h) for h in headers]
-    for row in text_rows:
-        for index, cell in enumerate(row):
-            widths[index] = max(widths[index], len(cell))
-    lines = ["  ".join(h.ljust(w) for h, w in zip(headers, widths)).rstrip()]
-    lines.append("  ".join("-" * w for w in widths))
-    for row in text_rows:
-        lines.append("  ".join(cell.ljust(w) for cell, w in zip(row, widths)).rstrip())
-    return "\n".join(lines)
-
-
-def _fmt(value: Optional[float]) -> str:
-    return "" if value is None else f"{value:.6g}"
 
 
 # Commands --------------------------------------------------------------
@@ -714,6 +595,10 @@ def _add_sim_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+# Each module named here has ``add_commands(subparsers)``, which adds its commands and sets ``func``.
+COMMAND_GROUPS: Tuple[str, ...] = ()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="benchrun",
@@ -826,6 +711,9 @@ def build_parser() -> argparse.ArgumentParser:
     raw.add_argument("commands", nargs="+", help="commands; those containing ? read a response")
     raw.add_argument("--timeout", type=_positive_number, default=5.0, help="seconds to wait for a response")
     raw.set_defaults(func=cmd_scpi)
+
+    for module_name in COMMAND_GROUPS:
+        importlib.import_module(module_name).add_commands(commands)
     return parser
 
 

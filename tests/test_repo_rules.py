@@ -20,6 +20,8 @@ ALLOWED_IMPORTS = {
     "inspect", "io", "itertools", "json", "math", "operator", "os", "pathlib", "pty", "random", "re", "select", "shutil",
     "shlex", "signal", "socket", "sqlite3", "stat", "string", "subprocess", "sys", "tempfile", "threading", "time", "traceback", "typing", "unittest",
     "xml", "benchrun", "tests", "__future__",
+    "base64", "bisect", "decimal", "email", "fnmatch", "functools", "glob", "heapq", "hmac", "http", "importlib",
+    "mimetypes", "queue", "secrets", "socketserver", "statistics", "struct", "textwrap", "urllib", "uuid", "zipfile", "zlib",
 }
 
 
