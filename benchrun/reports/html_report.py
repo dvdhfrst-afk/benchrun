@@ -129,17 +129,26 @@ def _measurement_table(step: Dict[str, Any]) -> str:
     )
 
 
+def title(detail: Dict[str, Any]) -> str:
+    return f"Run {detail['id']}: {detail['serial']}"
+
+
 def render_html(detail: Dict[str, Any]) -> str:
+    return (
+        '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{_esc(title(detail))}</title><style>{STYLE}</style></head><body>{render_body(detail)}</body></html>\n"
+    )
+
+
+def render_body(detail: Dict[str, Any]) -> str:
+    """Everything inside ``<body>``, which the web interface shows inside its own page."""
     counts = {"pass": 0, "fail": 0, "error": 0, "info": 0}
     for step in detail["steps"]:
         for m in step["measurements"]:
             counts[m["verdict"]] = counts.get(m["verdict"], 0) + 1
-    title = f"Run {detail['id']}: {detail['serial']}"
     out = [
-        '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>{_esc(title)}</title><style>{STYLE}</style></head><body>",
-        f"<h1>{_esc(title)} {_badge(detail['status'])}</h1>",
+        f"<h1>{_esc(title(detail))} {_badge(detail['status'])}</h1>",
         f'<p class="muted">{_esc(detail["plan_name"])} {_esc(detail["plan_version"])}: '
         f'{counts["pass"]} passed, {counts["fail"]} failed, {counts["error"]} errors, '
         f'{counts["info"]} recorded without limits</p>',
@@ -195,5 +204,4 @@ def render_html(detail: Dict[str, Any]) -> str:
         if step["measurements"]:
             out.append(_plot(step))
             out.append(_measurement_table(step))
-    out.append("</body></html>\n")
     return "".join(out)

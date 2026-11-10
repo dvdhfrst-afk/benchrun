@@ -12,7 +12,7 @@ _WIDTH, _HEIGHT = 640, 230
 _LEFT, _RIGHT, _TOP, _BOTTOM = 70, 16, 36, 34
 _MAX_DOTS = 300  # Above this many points only those that broke a rule get a dot.
 
-_EXTRA_STYLE = """
+EXTRA_STYLE = """
 .flag { color: var(--fail); }
 section.measurement { border-top: 1px solid var(--line); margin-top: 2rem; }
 """
@@ -225,17 +225,19 @@ def _measurement_section(item: Dict[str, Any]) -> str:
 
 
 def render_html(report: Dict[str, Any]) -> str:
-    runs = report["runs"]
     title = "Production statistics"
     chosen = ", ".join(f"{k} {v}" for k, v in report["selection"].items() if v is not None)
-    out = [
-        '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>{_esc(title)}</title><style>{STYLE}{_EXTRA_STYLE}</style></head><body>",
-        f"<h1>{_esc(title)}</h1>",
-        f'<p class="muted">{_esc(chosen)}</p>',
-        f"<p>{_esc(runs_sentence(runs))}</p>",
-    ]
+    return (
+        '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{_esc(title)}</title><style>{STYLE}{EXTRA_STYLE}</style></head><body>"
+        f'<h1>{_esc(title)}</h1><p class="muted">{_esc(chosen)}</p>{render_sections(report)}</body></html>\n'
+    )
+
+
+def render_sections(report: Dict[str, Any]) -> str:
+    """The page below its heading: how many runs were used, then each part the report holds."""
+    out = [f"<p>{_esc(runs_sentence(report['runs']))}</p>"]
     if "yield" in report:
         out.append(_yield_section(report["yield"]))
     if "pareto" in report:
@@ -244,7 +246,6 @@ def render_html(report: Dict[str, Any]) -> str:
         out.append(_summary_section(report["measurements"]))
     for item in report.get("charts", []):
         out.append(_measurement_section(item))
-    out.append("</body></html>\n")
     return "".join(out)
 
 

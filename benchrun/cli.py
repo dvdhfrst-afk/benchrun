@@ -686,6 +686,7 @@ COMMAND_GROUPS: Tuple[str, ...] = (
     "benchrun.maintenance",
     "benchrun.stats.command",
     "benchrun.product_commands",
+    "benchrun.web.command",
 )
 
 

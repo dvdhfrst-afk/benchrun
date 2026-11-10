@@ -35,8 +35,9 @@ def entries(
     since: Optional[str] = None,
     until: Optional[str] = None,
     limit: int = MAX_ENTRIES,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
-    """Newest first. ``subject`` matches exactly, or as a prefix when it ends with ``:``, such as ``station:``."""
+    """Newest first, leaving out the newest ``offset``. ``subject`` matches exactly, or as a prefix when it ends with ``:``, such as ``station:``."""
     clauses: List[str] = []
     values: List[Any] = []
     if subject is not None:
@@ -58,8 +59,8 @@ def entries(
         values.append(until)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = conn.execute(
-        f"SELECT id, at, actor, action, subject, detail FROM audit_log{where} ORDER BY id DESC LIMIT ?",
-        (*values, max(0, int(limit))),
+        f"SELECT id, at, actor, action, subject, detail FROM audit_log{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+        (*values, max(0, int(limit)), max(0, int(offset))),
     ).fetchall()
     result = []
     for row in rows:
