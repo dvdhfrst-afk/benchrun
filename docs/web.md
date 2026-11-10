@@ -100,7 +100,7 @@ Every answer is one JSON object, and every list that can be long is paged with `
 | `/api/serials/SERIAL` | `serial`, `runs` and `paging` (or `/api/serials?serial=...`) |
 | `/api/plans` | `plans` |
 | `/api/stats?plan=NAME` | what `stats --json` gives; `view` is `summary` (default), `yield`, `pareto`, `histogram` or `control`, the last two with `measurement=NAME`, and `bins` with `histogram`. It takes `product`, `station`, `lot`, `serial` (a prefix), `since`, `until`, `step`, `measurement` and `limit_runs`. |
-| `/api/lots`, `/api/lots/ID` | `lots`; `lot` with its `yield` per plan and `pareto` |
+| `/api/lots`, `/api/lots/ID` | `lots`, as `lot list --json`; one lot as `lot show --json`: `lot`, `runs`, `units`, `running_runs`, `pareto` and `unit_results` |
 | `/api/stations` | `stations`, each with its `roles` |
 | `/api/instruments`, `/api/instruments/TAG` | `instruments` (filters `driver`, `status`, `search`); `instrument` with `stations` and `recent_runs` |
 | `/api/products`, `/api/products/PART` | `products`; `product` with `variables` and `limits` |
@@ -153,9 +153,11 @@ python -m benchrun serve --allow-runs --plans-dir examples
 The menu then has **Start a run**. Its form takes:
 
 - a plan, chosen from the `.json` files directly in `--plans-dir` (never a subfolder, a link or a
-  path typed in), or none, to use the chosen product's own plan;
+  path typed in), or none, to use the plan of the chosen product (or of the lot's product);
 - the serial number, and optionally an operator label;
 - optionally a product and a station, chosen from those in the database;
+- optionally an open lot, as `run --lot` takes, and **Retest** for a unit that already passed in
+  it (`--retest`); without it, such a unit is refused before anything starts;
 - whether to use private simulators (`--sim`), which cannot be combined with a station.
 
 The server checks all of it, then starts `python -m benchrun run` as a child process with an

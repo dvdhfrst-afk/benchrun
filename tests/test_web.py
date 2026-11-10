@@ -377,11 +377,15 @@ class Api(ServerCase):
 
     def test_lots_stations_instruments_products_audit(self):
         lot = self.json("/api/lots")["lots"][0]
-        self.assertEqual((lot["name"], lot["quantity"], lot["units_with_verdict"], lot["to_test"]), ("L2026-11-01", 5, 2, 3))
-        detail = self.json("/api/lots/1")["lot"]
-        self.assertEqual(detail["first_pass_yield"], 0.5)
-        self.assertEqual(detail["final_yield"], 1.0)
-        self.assertEqual(detail["pareto"][0]["runs"], 1)
+        self.assertEqual((lot["name"], lot["quantity"], lot["units"]["units_with_verdict"], lot["units"]["to_test"]), ("L2026-11-01", 5, 2, 3))
+        detail = self.json("/api/lots/1")
+        self.assertEqual(detail["lot"]["name"], "L2026-11-01")
+        self.assertEqual(detail["runs"]["selected"], 3)
+        self.assertEqual(detail["units"]["first_pass_yield"], 0.5)
+        self.assertEqual(detail["units"]["final_yield"], 1.0)
+        self.assertEqual(detail["pareto"]["rows"][0]["runs"], 1)
+        self.assertEqual([unit["serial"] for unit in detail["unit_results"]], ["SN-1001", "SN-1002"])
+        self.assertEqual(self.json("/api/lots/9", 404)["error"]["message"], "no lot with id 9")
         station = self.json("/api/stations")["stations"][0]
         self.assertEqual([role["asset_tag"] for role in station["roles"]], ["DMM-0001", "PSU-0001"])
         self.assertEqual(len(self.json("/api/instruments")["instruments"]), 2)
@@ -574,6 +578,26 @@ class Launching(ServerCase):
     def record(self, run_id: int) -> Dict[str, Any]:
         with Store(self.db) as store:
             return store.run_detail(run_id)
+
+    def test_a_run_can_join_an_open_lot_and_a_passed_unit_needs_a_retest(self):
+        self.assertEqual(_quiet_cli("lot", "open", "L-WEB", "--plan", str(self.plans / "small.json"), "--quantity", "2", "--db", str(self.db)), 0)
+        self.assertIn('<option value="L-WEB">', self.page("/launch"))
+        self.assertEqual(self.start("small.json", "WEB-6", sim="on", lot="L-WEB")[0], 303)
+        state = self.wait_for(lambda s: not s["running"])
+        self.assertEqual(state["exit_code"], 0, state["output"])
+        self.assertIn("--lot=L-WEB", self.app.site.launcher.current.args)
+        with Store(self.db) as store:
+            lot_id = store.conn.execute("SELECT lot_id FROM runs WHERE id = ?", (state["run_id"],)).fetchone()[0]
+            self.assertEqual(store.conn.execute("SELECT name FROM lots WHERE id = ?", (lot_id,)).fetchone()[0], "L-WEB")
+        code, _, body = self.start("small.json", "WEB-6", sim="on", lot="L-WEB")
+        self.assertEqual(code, 400)
+        self.assertIn("already passed in lot L-WEB; tick retest", body.decode("utf-8"))
+        self.assertEqual(self.start("small.json", "WEB-6", sim="on", lot="L-WEB", retest="on")[0], 303)
+        state = self.wait_for(lambda s: not s["running"])
+        self.assertEqual(state["exit_code"], 0, state["output"])
+        self.assertIn("--retest", self.app.site.launcher.current.args)
+        self.assertIn("no lot named", self.start("small.json", "WEB-7", lot="L-NONE")[2].decode("utf-8"))
+        self.assertIn("only applies to a unit in a lot", self.start("small.json", "WEB-7", retest="on")[2].decode("utf-8"))
 
     def test_only_json_files_directly_in_the_folder_are_offered(self):
         self.assertEqual(plan_files(self.plans), ["prompted.json", "small.json"])

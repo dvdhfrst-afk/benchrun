@@ -436,6 +436,7 @@ class Store:
         until: Optional[str] = None,
         station: Optional[str] = None,
         product: Optional[str] = None,
+        lot_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Runs, newest first, with pass, fail and total measurement counts.
 
@@ -460,6 +461,9 @@ class Store:
         if product is not None:
             clauses.append("product = ?")
             params.append(product)
+        if lot_id is not None:
+            clauses.append("lot_id = ?")
+            params.append(lot_id)
         if instrument is not None:
             clauses.append(
                 "id IN (SELECT run_id FROM run_instruments WHERE instr(lower(COALESCE(idn, '')), lower(?)) > 0)"

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
-from benchrun import inventory, products, stations
+from benchrun import inventory, lots, products, stations
 from benchrun.archive import RUN_STATUSES
 from benchrun.console import check_label, check_serial, utc_time
 from benchrun.errors import PlanError
@@ -125,16 +125,6 @@ def time_params(query: Mapping[str, str]) -> Tuple[Optional[str], Optional[str]]
     return since, utc_time(text_param(query, "until", 19), "until", end_of_day=True)
 
 
-def find_lot(conn: sqlite3.Connection, text: str) -> Dict[str, Any]:
-    """A lot by its numeric id or its name."""
-    row = conn.execute("SELECT * FROM lots WHERE name = ?", (text,)).fetchone()
-    if row is None and len(text) < 19 and text.isascii() and text.isdigit():
-        row = conn.execute("SELECT * FROM lots WHERE id = ?", (int(text),)).fetchone()
-    if row is None:
-        raise PlanError([f"no lot {text!r} in this database"])
-    return dict(row)
-
-
 def run_filter(conn: sqlite3.Connection, query: Mapping[str, str]) -> RunFilter:
     serial = query.get("serial", "").strip()
     status = text_param(query, "status")
@@ -146,7 +136,7 @@ def run_filter(conn: sqlite3.Connection, query: Mapping[str, str]) -> RunFilter:
         plan=text_param(query, "plan"),
         product=text_param(query, "product"),
         station=text_param(query, "station"),
-        lot=find_lot(conn, lot)["id"] if lot is not None else None,
+        lot=lots.find(conn, lot)["id"] if lot is not None else None,
         status=status,
         since=text_param(query, "since", 19),
         until=text_param(query, "until", 19),
@@ -214,13 +204,6 @@ def run_ids(conn: sqlite3.Connection, chosen: RunFilter) -> List[int]:
     return [row[0] for row in conn.execute(f"SELECT id FROM runs{where} ORDER BY id", params)]
 
 
-def lot_name(conn: sqlite3.Connection, lot_id: Optional[int]) -> Optional[str]:
-    if lot_id is None:
-        return None
-    row = conn.execute("SELECT name FROM lots WHERE id = ?", (lot_id,)).fetchone()
-    return None if row is None else row[0]
-
-
 # The dashboard and plans -----------------------------------------------------
 
 
@@ -278,38 +261,11 @@ def choices(conn: sqlite3.Connection) -> Dict[str, List[Any]]:
 # Lots ----------------------------------------------------------------------
 
 
-def _lot_totals(entries: List[Dict[str, Any]], quantity: Optional[int]) -> Dict[str, Any]:
-    """One lot's yield over every plan its runs used, which is normally one."""
-    keys = ("runs", "serials", "units_with_verdict", "first_pass_units", "final_pass_units", "retests")
-    totals: Dict[str, Any] = {key: sum(entry[key] for entry in entries) for key in keys}
-    units = totals["units_with_verdict"]
-    totals["first_pass_yield"] = totals["first_pass_units"] / units if units else None
-    totals["final_yield"] = totals["final_pass_units"] / units if units else None
-    totals["to_test"] = None if quantity is None else max(0, quantity - units)
-    return totals
-
-
-def lots(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
-    found = []
-    for row in conn.execute("SELECT * FROM lots ORDER BY id DESC").fetchall():
-        item = dict(row)
-        item.update(_lot_totals(yield_entries(conn, stats_query.Selection(lot_id=item["id"])), item["quantity"]))
-        found.append(item)
-    return found
-
-
-def lot_detail(conn: sqlite3.Connection, lot_id: int) -> Optional[Dict[str, Any]]:
-    row = conn.execute("SELECT * FROM lots WHERE id = ?", (lot_id,)).fetchone()
-    if row is None:
-        return None
-    item = dict(row)
-    selection = stats_query.Selection(lot_id=lot_id)
-    with stats_query.chosen_runs(conn, selection) as chosen:
-        entries = stats_query.yield_by_plan(conn, chosen)
-        item["yield"] = entries
-        item["pareto"] = stats_query.failure_pareto(conn, chosen)
-    item.update(_lot_totals(entries, item["quantity"]))
-    return item
+def lot_summary(conn: sqlite3.Connection, lot_id: int) -> Optional[Dict[str, Any]]:
+    """What ``lot show`` reports, for the lot with this id."""
+    row = conn.execute("SELECT name FROM lots WHERE id = ?", (lot_id,)).fetchone()
+    lot = None if row is None else lots.get(conn, row[0])
+    return None if lot is None else lots.summary(conn, lot)
 
 
 # Stations, instruments, products ----------------------------------------------

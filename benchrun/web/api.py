@@ -12,6 +12,7 @@ import math
 import sqlite3
 from typing import Any, Dict, Mapping
 
+from benchrun import lots as lots_module
 from benchrun import products
 from benchrun.errors import PlanError
 from benchrun.stats import engine
@@ -73,7 +74,7 @@ def run(conn: sqlite3.Connection, run_id: int) -> Dict[str, Any]:
     detail = data.ReadOnlyStore(conn).run_detail(run_id)
     if detail is None:
         raise NotFound(f"no run with id {run_id}")
-    detail["lot"] = data.lot_name(conn, detail.get("lot_id"))
+    detail["lot"] = lots_module.name_of(conn, detail.get("lot_id")) or None
     return {"run": detail}
 
 
@@ -111,14 +112,16 @@ def stats(conn: sqlite3.Connection, query: Mapping[str, str]) -> Dict[str, Any]:
 
 
 def lots(conn: sqlite3.Connection, query: Mapping[str, str]) -> Dict[str, Any]:
-    return {"lots": data.lots(conn)}
+    return {"lots": lots_module.listing(conn)}
 
 
 def lot(conn: sqlite3.Connection, lot_id: int) -> Dict[str, Any]:
-    found = data.lot_detail(conn, lot_id)
+    """What ``lot show --json`` gives: the lot, its runs, units, yield and failures by measurement."""
+    found = data.lot_summary(conn, lot_id)
     if found is None:
         raise NotFound(f"no lot with id {lot_id}")
-    return {"lot": found}
+    found["unit_results"] = lots_module.unit_results(conn, lot_id)
+    return found
 
 
 def stations(conn: sqlite3.Connection, query: Mapping[str, str]) -> Dict[str, Any]:

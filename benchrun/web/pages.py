@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from benchrun import audit, maintenance, products
+from benchrun import lots as lots_module
 from benchrun.inventory import STATUSES
 from benchrun.reports import REGISTRY
 from benchrun.reports.html_report import render_body
@@ -209,7 +210,7 @@ def run(site: Site, conn: sqlite3.Connection, run_id: int) -> str:
     detail = data.ReadOnlyStore(conn).run_detail(run_id)
     if detail is None:
         raise NotFound(f"no run with id {run_id}")
-    lot = data.lot_name(conn, detail.get("lot_id"))
+    lot = lots_module.name_of(conn, detail.get("lot_id")) or None
     reports = [link(f"/runs/{run_id}/report/{name}", name) for name in REGISTRY]
     related = [
         link(f"/api/runs/{run_id}", "JSON"),
@@ -276,7 +277,7 @@ def stats_selection(conn: sqlite3.Connection, query: Mapping[str, str]) -> stats
         plan=data.text_param(query, "plan"),
         product=data.text_param(query, "product"),
         station=data.text_param(query, "station"),
-        lot_id=data.find_lot(conn, lot)["id"] if lot is not None else None,
+        lot_id=lots_module.find(conn, lot)["id"] if lot is not None else None,
         serial_prefix=data.text_param(query, "serial"),
         since=since,
         until=until,
@@ -324,14 +325,14 @@ def lots(site: Site, conn: sqlite3.Connection, query: Mapping[str, str]) -> str:
             lot["status"],
             lot["quantity"],
             link(url("/runs", {"lot": lot["id"]}), lot["runs"]),
-            lot["units_with_verdict"],
-            lot["to_test"],
-            share(lot["first_pass_yield"]),
-            share(lot["final_yield"]),
+            lot["units"]["units_with_verdict"],
+            lot["units"]["to_test"],
+            share(lot["units"]["first_pass_yield"]),
+            share(lot["units"]["final_yield"]),
             when(lot["created_at"]),
             when(lot["closed_at"]),
         )
-        for lot in data.lots(conn)
+        for lot in lots_module.listing(conn)
     ]
     headers = ("Lot", "Product", "Plan", "Status", "Quantity", "Runs", "Units tested", "Still to test", "First-pass yield", "Final yield", "Opened", "Closed")
     body = table(headers, rows, numeric=range(4, 10)) if rows else Markup('<p class="muted">No lots in this database.</p>')
@@ -339,9 +340,10 @@ def lots(site: Site, conn: sqlite3.Connection, query: Mapping[str, str]) -> str:
 
 
 def lot(site: Site, conn: sqlite3.Connection, lot_id: int) -> str:
-    found = data.lot_detail(conn, lot_id)
-    if found is None:
+    summary = data.lot_summary(conn, lot_id)
+    if summary is None:
         raise NotFound(f"no lot with id {lot_id}")
+    found, units, total = summary["lot"], summary["units"], summary["runs"]["selected"]
     info = facts(
         (
             ("Status", found["status"]),
@@ -351,12 +353,13 @@ def lot(site: Site, conn: sqlite3.Connection, lot_id: int) -> str:
             ("Note", found["note"]),
             ("Opened (UTC)", found["created_at"]),
             ("Closed (UTC)", found["closed_at"]),
-            ("Runs", found["runs"]),
-            ("Units tested (with a complete run)", found["units_with_verdict"]),
-            ("Units still to test", found["to_test"]),
-            ("First-pass yield", share(found["first_pass_yield"])),
-            ("Final yield", share(found["final_yield"])),
-            ("Retests", found["retests"]),
+            ("Runs", total),
+            ("Runs still marked running", len(summary["running_runs"]) or None),
+            ("Units tested (with a complete run)", units["units_with_verdict"]),
+            ("Units still to test", units["to_test"]),
+            ("First-pass yield", share(units["first_pass_yield"])),
+            ("Final yield", share(units["final_yield"])),
+            ("Retests", units["retests"]),
         )
     )
     report = build_report(conn, stats_query.Selection(lot_id=lot_id), "summary", everything=True)
@@ -368,8 +371,8 @@ def lot(site: Site, conn: sqlite3.Connection, lot_id: int) -> str:
         parts.append(Markup(charts.render_sections(report)))
     parts.append(Markup("<h2>Runs</h2>"))
     parts.append(runs_table(shown))
-    if found["runs"] > LOT_RUNS_SHOWN:
-        parts.append(Markup(f'<p class="muted">The newest {LOT_RUNS_SHOWN} of {found["runs"]} runs.</p>'))
+    if total > LOT_RUNS_SHOWN:
+        parts.append(Markup(f'<p class="muted">The newest {LOT_RUNS_SHOWN} of {total} runs.</p>'))
     return _page(site, f"Lot {found['name']}", "lots", *parts)
 
 
@@ -554,12 +557,15 @@ def audit_log(site: Site, conn: sqlite3.Connection, query: Mapping[str, str]) ->
 def _launch_form(site: Site, conn: sqlite3.Connection, launcher: Launcher, form: Mapping[str, str]) -> Markup:
     found = data.choices(conn)
     plan_names = launcher.plans()
-    sim = " checked" if form.get("sim") == "on" else ""
+    sim, retest = (" checked" if form.get(name) == "on" else "" for name in ("sim", "retest"))
+    open_lots = [lot["name"] for lot in lots_module.listing(conn, lots_module.OPEN)]
     fields = [
         select("plan", "Plan file", ((p, p) for p in plan_names), form.get("plan"), blank="the product's own plan"),
         text_input("serial", "Serial number", form.get("serial"), required=True),
         text_input("operator", "Operator", form.get("operator")),
-        select("product", "Product", ((p, p) for p in found["product"]), form.get("product"), blank="none"),
+        select("product", "Product", ((p, p) for p in found["product"]), form.get("product"), blank="none, or the lot's"),
+        select("lot", "Open lot", ((name, name) for name in open_lots), form.get("lot"), blank="none"),
+        Markup(f'<label class="check"><input type="checkbox" name="retest" value="on"{retest}> Retest a unit that already passed in the lot</label>'),
         select("station", "Station", ((s, s) for s in found["station"]), form.get("station"), blank="the plan's own addresses"),
         Markup(f'<label class="check"><input type="checkbox" name="sim" value="on"{sim}> Use private simulators instead of instruments</label>'),
     ]
@@ -596,7 +602,8 @@ def launch(site: Site, conn: sqlite3.Connection, form: Optional[Mapping[str, str
 
 def _launch_state(site: Site, state: Mapping[str, Any]) -> Markup:
     form = state["form"]
-    what = f"Serial {form['serial']}, plan {form['plan'] or 'of product ' + form['product']}" + (" on simulators" if form["sim"] else "")
+    what = f"Serial {form['serial']}, plan {form['plan'] or 'of the product'}"
+    what += (f" in lot {form['lot']}" if form.get("lot") else "") + (" on simulators" if form["sim"] else "")
     parts: List[Any] = [Markup(f"<h2>{'Running' if state['running'] else 'Last run'}: {esc(what)}</h2>")]
     parts.append(Markup(f"<p>Started {esc(when(state['started_at']))}. Result: <strong>{esc(state['outcome'])}</strong>"))
     if state["exit_code"] is not None:

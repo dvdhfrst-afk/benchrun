@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Mapping, Optional
 
 import benchrun
-from benchrun import stations
+from benchrun import lots, stations
 from benchrun.console import CONTROL, check_label, check_serial
 from benchrun.errors import PlanError
 from benchrun.store import now_iso
@@ -117,14 +117,28 @@ class Launcher:
         product = form.get("product", "")
         station = form.get("station", "")
         chosen["sim"] = form.get("sim") == "on"
+        chosen["retest"] = form.get("retest") == "on"
+        lot: Optional[Dict[str, Any]] = None
+        if form.get("lot"):
+            try:
+                lot = lots.find_open(conn, form["lot"])
+            except PlanError as exc:
+                problems.extend(exc.problems)
+        elif chosen["retest"]:
+            problems.append("a retest only applies to a unit in a lot")
+        chosen["lot"] = lot["name"] if lot else ""
         if chosen["plan"] and chosen["plan"] not in self.plans():
             problems.append(f"plan {chosen['plan']!r} is not a .json file in the plans folder")
-        if not chosen["plan"] and not product:
+        if not chosen["plan"] and not product and not (lot and lot["product"]):
             problems.append("choose a plan, or a product to use the plan it is tested with")
         try:
             chosen["serial"] = check_serial(chosen["serial"])
         except PlanError as exc:
             problems.extend(exc.problems)
+        if lot is not None:
+            problem = lots.serial_problem(lot, chosen["serial"], lots.passed_serials(conn, lot["id"]), chosen["retest"])
+            if problem:
+                problems.append(problem.replace("add --retest", "tick retest"))
         try:
             chosen["operator"] = check_label(form.get("operator", "").strip(), "operator")
         except PlanError as exc:
@@ -148,11 +162,12 @@ class Launcher:
         if chosen["plan"]:
             args.append(str(self.plans_dir / chosen["plan"]))
         args += [f"--serial={chosen['serial']}", f"--db={self.db}"]
-        for flag, key in (("--operator", "operator"), ("--product", "product"), ("--station-name", "station")):
-            if chosen[key]:
+        for flag, key in (("--operator", "operator"), ("--product", "product"), ("--station-name", "station"), ("--lot", "lot")):
+            if chosen.get(key):
                 args.append(f"{flag}={chosen[key]}")
-        if chosen["sim"]:
-            args.append("--sim")
+        for flag, key in (("--retest", "retest"), ("--sim", "sim")):
+            if chosen.get(key):
+                args.append(flag)
         return args
 
     def start(self, chosen: Mapping[str, Any]) -> LaunchedRun:
