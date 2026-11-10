@@ -162,6 +162,7 @@ def render_html(detail: Dict[str, Any]) -> str:
     variables = ", ".join(f"{k}={v:g}" for k, v in detail["variables"].items())
     for label, value in (
         ("Serial number", detail["serial"]),
+        ("Station", detail.get("station")),
         ("Operator", detail["operator"]),
         ("Note", detail.get("note")),
         ("Started (UTC)", detail["started_at"]),
@@ -174,12 +175,13 @@ def render_html(detail: Dict[str, Any]) -> str:
     out.append("</tbody></table></div><h2>Instruments</h2>")
     out.append(
         '<div class="scroll"><table><thead><tr><th>Name</th><th>Driver</th><th>Address</th>'
-        "<th>*IDN? response</th></tr></thead><tbody>"
+        "<th>Asset tag</th><th>*IDN? response</th></tr></thead><tbody>"
     )
     for instrument in detail["instruments"]:
         out.append(
             f"<tr><td>{_esc(instrument['name'])}</td><td>{_esc(instrument['driver'])}</td>"
-            f"<td>{_esc(instrument['address'])}</td><td><code>{_esc(instrument['idn'])}</code></td></tr>"
+            f"<td>{_esc(instrument['address'])}</td><td>{_esc(instrument.get('asset_tag'))}</td>"
+            f"<td><code>{_esc(instrument['idn'])}</code></td></tr>"
         )
     out.append("</tbody></table></div>")
     for step in detail["steps"]:

@@ -28,6 +28,7 @@ from benchrun.reports.csv_report import render_many
 from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_transport
 from benchrun.sim.bench import DEFAULT_BASE_PORT, PORT_ORDER, SimBench, parse_fault
 from benchrun.sim.model import DUT_VARIANTS
+from benchrun.stations import add_station_name_arg, read_identity, use_station
 from benchrun.store import Store
 from benchrun.console import (
     say as _say,
@@ -184,8 +185,14 @@ def cmd_sim(args: argparse.Namespace) -> int:
         bench.stop()
 
 
-def _load_for_bench(args: argparse.Namespace, variables: Optional[Dict[str, float]] = None) -> Plan:
+def _load_for_bench(args: argparse.Namespace, variables: Optional[Dict[str, float]] = None) -> Tuple[Plan, str, Dict[str, str]]:
+    """The plan with its addresses, the station it runs on, and each instrument's asset tag."""
     plan = load_plan(args.plan, variables)
+    if args.station_name:
+        if args.station or args.address:
+            raise PlanError(["--station-name gives every address; leave out --station and --address"])
+        station, asset_tags = use_station(args.db, args.station_name, plan)
+        return plan, station, asset_tags
     addresses: Dict[str, str] = {}
     if args.station:
         addresses, unused = match_station(plan, load_addresses(args.station))
@@ -193,7 +200,7 @@ def _load_for_bench(args: argparse.Namespace, variables: Optional[Dict[str, floa
             _say(f"Note: station entries not used by this plan: {', '.join(sorted(unused))}")
     addresses.update(_parse_pairs(args.address, "--address"))
     apply_addresses(plan, addresses)
-    return plan
+    return plan, "", {}
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -202,6 +209,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     note = _check_label(args.note, "--note")
     variables = _parse_variables(args.set)
     bench: Optional[SimBench] = None
+    station, asset_tags = "", {}
+    if args.sim and args.station_name:
+        raise PlanError(["--station-name and --sim cannot be combined: the simulators are not on any station"])
     if args.sim:
         faults: Dict[str, Any] = {}
         for text in args.fault or []:
@@ -216,7 +226,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         if args.fault or args.dut != "good":
             raise PlanError(["--dut and --fault only apply with --sim; otherwise set them on the sim command"])
-        plan = _load_for_bench(args, variables)
+        plan, station, asset_tags = _load_for_bench(args, variables)
 
     log_handle = None
     try:
@@ -235,6 +245,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                 only_steps=only_steps,
                 prompt=_confirm_automatically if args.auto_confirm else _ask_operator,
                 verbose=args.verbose,
+                station=station,
+                asset_tags=asset_tags,
             )
             with _stop_requests_interrupt(lambda: runner.past_saving):
                 result = runner.run()
@@ -264,10 +276,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     plan = load_plan(args.plan, _parse_variables(args.set))
+    station, asset_tags = use_station(args.db, args.station_name, plan) if args.station_name else ("", {})
     points = sum(len(step.points()) * len(step.measures) + len(step.summary) for step in plan.steps)
     _say(f"{args.plan}: OK")
     _say(f"  {plan.name} {plan.version}".rstrip())
     _say(f"  {len(plan.instruments)} instruments, {len(plan.steps)} steps, {points} measurements per run")
+    if station:
+        used = ", ".join(f"{name}={tag} ({plan.instruments[name].address})" for name, tag in asset_tags.items())
+        _say(f"  Station {station}: {used}")
     unaddressed = [spec.name for spec in plan.instruments.values() if not spec.address]
     if unaddressed:
         _say(f"  Needs an address from --station, --address or --sim: {', '.join(unaddressed)}")
@@ -278,27 +294,17 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_probe(args: argparse.Namespace) -> int:
     """Connect to each instrument in a plan without changing its settings."""
-    plan = _load_for_bench(args)
+    plan, station, asset_tags = _load_for_bench(args)
     rows = []
     problems = 0
     for spec in plan.instruments.values():
-        driver = DRIVERS[spec.driver](default_transport(spec.address, spec.timeout_s), spec.name, spec.commands, spec.reply_pattern)
-        state = "ok"
-        idn = ""
-        try:
-            driver.connect()
-            idn = driver.identify()
-            driver.check_errors()
-            if spec.expect_idn:
-                if not re.search(spec.expect_idn, idn):
-                    state = f"*IDN? does not match {spec.expect_idn!r}"
-        except InstrumentFault as exc:
-            state = str(exc)
-        finally:
-            driver.close()
+        idn, fault = read_identity(spec.driver, spec.address or "", spec.timeout_s, spec.name, spec.commands, spec.reply_pattern)
+        state = fault or "ok"
+        if fault is None and spec.expect_idn and not re.search(spec.expect_idn, idn):
+            state = f"*IDN? does not match {spec.expect_idn!r}"
         problems += state != "ok"
-        rows.append((spec.name, spec.driver, spec.address, idn, state))
-    _say(_table(("name", "driver", "address", "*IDN?", "state"), rows))
+        rows.append((spec.name, spec.driver, spec.address, idn, state) + ((asset_tags.get(spec.name),) if station else ()))
+    _say(_table(("name", "driver", "address", "*IDN?", "state") + (("asset tag",) if station else ()), rows))
     return EXIT_ABORTED if problems else EXIT_PASS
 
 
@@ -371,11 +377,12 @@ def cmd_show(args: argparse.Namespace) -> int:
     if detail["selected_steps"] is not None:
         _say(f"Only these steps were selected: {', '.join(detail['selected_steps'])}")
     _say(f"Started {detail['started_at']}, finished {detail['finished_at'] or 'never'} (UTC)")
-    for label, value in (("Operator", detail["operator"]), ("Note", detail["note"])):
+    for label, value in (("Station", detail["station"]), ("Operator", detail["operator"]), ("Note", detail["note"])):
         if value:
             _say(f"{label}: {value}")
     _say()
-    _say(_table(("instrument", "driver", "address", "*IDN?"), [(i["name"], i["driver"], i["address"], i["idn"]) for i in detail["instruments"]]))
+    instruments = [(i["name"], i["driver"], i["address"], i["asset_tag"], i["idn"]) for i in detail["instruments"]]
+    _say(_table(("instrument", "driver", "address", "asset tag", "*IDN?"), instruments))
     _say()
     for step in detail["steps"]:
         counts = step["measurements"]
@@ -516,6 +523,7 @@ def cmd_history(args: argparse.Namespace) -> int:
             instrument=args.instrument,
             since=since,
             until=until,
+            station=args.station,
         )
         summary = store.plan_summary(args.plan) if args.plan else None
         stats = store.measurement_stats(args.plan, args.serial) if args.stats else None
@@ -596,7 +604,7 @@ def _add_sim_args(parser: argparse.ArgumentParser) -> None:
 
 
 # Each module named here has ``add_commands(subparsers)``, which adds its commands and sets ``func``.
-COMMAND_GROUPS: Tuple[str, ...] = ()
+COMMAND_GROUPS: Tuple[str, ...] = ("benchrun.inventory", "benchrun.stations", "benchrun.audit")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -637,6 +645,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--report-dir", help="also write HTML, CSV and JUnit XML reports here")
     run.add_argument("--scpi-log", metavar="FILE", help="add all SCPI traffic to this file")
     _add_address_args(run)
+    add_station_name_arg(run)
     run.add_argument("--sim", action="store_true", help="start private simulators for just this run")
     _add_sim_args(run)
     run.set_defaults(func=cmd_run)
@@ -644,11 +653,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate", help="check a plan without touching any instrument")
     validate.add_argument("plan", help="path to a plan JSON file")
     validate.add_argument("--set", action="append", metavar="VAR=NUMBER", help="override a plan variable (repeatable)")
+    add_station_name_arg(validate)
+    validate.add_argument("--db", default=DEFAULT_DB, help=f"results database holding the station (default: {DEFAULT_DB})")
     validate.set_defaults(func=cmd_validate)
 
     probe = commands.add_parser("probe", help="connect to a plan's instruments and show their *IDN? responses")
     probe.add_argument("plan", help="path to a plan JSON file")
     _add_address_args(probe)
+    add_station_name_arg(probe)
+    probe.add_argument("--db", default=DEFAULT_DB, help=f"results database holding the station (default: {DEFAULT_DB})")
     probe.set_defaults(func=cmd_probe)
 
     report = commands.add_parser("report", help="write reports for recorded runs")
@@ -667,6 +680,7 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--serial", help="only this unit")
     history.add_argument("--plan", help="only this plan; also shows yield")
     history.add_argument("--status", choices=("pass", "fail", "aborted", "running"), help="only runs with this result")
+    history.add_argument("--station", metavar="NAME", help="only runs recorded on this station")
     history.add_argument("--instrument", metavar="TEXT", help="only runs where an instrument's *IDN? response contains this")
     history.add_argument("--since", metavar="TIME", help="only runs started at or after this UTC date or time, YYYY-MM-DD[THH:MM]")
     history.add_argument("--until", metavar="TIME", help="only runs started at or before this UTC date or time")

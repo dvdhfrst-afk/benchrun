@@ -433,6 +433,7 @@ class Store:
         instrument: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        station: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Runs, newest first, with pass, fail and total measurement counts.
 
@@ -451,6 +452,9 @@ class Store:
         if status is not None:
             clauses.append("status = ?")
             params.append(status)
+        if station is not None:
+            clauses.append("station = ? COLLATE NOCASE")
+            params.append(station)
         if instrument is not None:
             clauses.append(
                 "id IN (SELECT run_id FROM run_instruments WHERE instr(lower(COALESCE(idn, '')), lower(?)) > 0)"
