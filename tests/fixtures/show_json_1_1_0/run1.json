@@ -1,0 +1,133 @@
+{
+  "id": 1,
+  "serial": "SN-1001",
+  "plan_name": "regulator-quick",
+  "plan_version": "1.0",
+  "plan_hash": "7cd83e75e98ca8af5907645dc841119bf0b8fc3ff7e367287308f6c8ed135397",
+  "plan_source": "{\n  \"name\": \"regulator-quick\",\n  \"version\": \"1.0\",\n  \"description\": \"Short functional check that only needs a supply and a multimeter.\",\n  \"vars\": { \"vnom\": 5.0 },\n  \"instruments\": {\n    \"supply\": { \"driver\": \"psu\", \"address\": \"127.0.0.1:5026\" },\n    \"dmm\": { \"driver\": \"dmm\", \"address\": \"127.0.0.1:5025\" }\n  },\n  \"setup\": [\n    { \"do\": \"supply.set_current_limit\", \"amps\": 0.5 },\n    { \"do\": \"supply.set_voltage\", \"volts\": 12.0 },\n    { \"do\": \"supply.output_on\" }\n  ],\n  \"steps\": [\n    {\n      \"name\": \"output_voltage\",\n      \"sweep\": { \"var\": \"vin\", \"values\": [8.0, 12.0, 16.0] },\n      \"apply\": [{ \"do\": \"supply.set_voltage\", \"volts\": \"=vin\" }],\n      \"settle_s\": 0.01,\n      \"measure\": [\n        { \"name\": \"vout\", \"read\": \"dmm.measure_dc_voltage\", \"units\": \"V\", \"low\": \"=vnom * 0.98\", \"high\": \"=vnom * 1.02\" }\n      ]\n    }\n  ],\n  \"teardown\": [{ \"do\": \"supply.output_off\" }]\n}\n",
+  "variables": {
+    "vnom": 5.0
+  },
+  "operator": "Operator A",
+  "software_version": "1.1.0",
+  "status": "pass",
+  "reason": null,
+  "started_at": "2026-11-10T05:08:09.851+00:00",
+  "finished_at": "2026-11-10T05:08:09.923+00:00",
+  "note": "first try",
+  "selected_steps": null,
+  "instruments": [
+    {
+      "id": 1,
+      "run_id": 1,
+      "name": "supply",
+      "driver": "psu",
+      "address": "127.0.0.1:52689",
+      "idn": "benchrun,SIM-PSU,SIM0002,1.0"
+    },
+    {
+      "id": 2,
+      "run_id": 1,
+      "name": "dmm",
+      "driver": "dmm",
+      "address": "127.0.0.1:52688",
+      "idn": "benchrun,SIM-DMM,SIM0001,1.0"
+    }
+  ],
+  "steps": [
+    {
+      "id": 1,
+      "run_id": 1,
+      "ordinal": 0,
+      "name": "(setup)",
+      "kind": "setup",
+      "status": "pass",
+      "message": null,
+      "started_at": "2026-11-10T05:08:09.851+00:00",
+      "finished_at": "2026-11-10T05:08:09.873+00:00",
+      "measurements": []
+    },
+    {
+      "id": 2,
+      "run_id": 1,
+      "ordinal": 1,
+      "name": "output_voltage",
+      "kind": "test",
+      "status": "pass",
+      "message": null,
+      "started_at": "2026-11-10T05:08:09.875+00:00",
+      "finished_at": "2026-11-10T05:08:09.916+00:00",
+      "measurements": [
+        {
+          "id": 1,
+          "run_id": 1,
+          "step_id": 2,
+          "name": "vout",
+          "kind": "read",
+          "point": {
+            "vin": 8.0
+          },
+          "instrument": "dmm",
+          "samples": 1,
+          "value": 4.995959022,
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1,
+          "verdict": "pass",
+          "note": null,
+          "taken_at": "2026-11-10T05:08:09.888+00:00"
+        },
+        {
+          "id": 2,
+          "run_id": 1,
+          "step_id": 2,
+          "name": "vout",
+          "kind": "read",
+          "point": {
+            "vin": 12.0
+          },
+          "instrument": "dmm",
+          "samples": 1,
+          "value": 5.000021706,
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1,
+          "verdict": "pass",
+          "note": null,
+          "taken_at": "2026-11-10T05:08:09.901+00:00"
+        },
+        {
+          "id": 3,
+          "run_id": 1,
+          "step_id": 2,
+          "name": "vout",
+          "kind": "read",
+          "point": {
+            "vin": 16.0
+          },
+          "instrument": "dmm",
+          "samples": 1,
+          "value": 5.003943822,
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1,
+          "verdict": "pass",
+          "note": null,
+          "taken_at": "2026-11-10T05:08:09.914+00:00"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "run_id": 1,
+      "ordinal": 2,
+      "name": "(teardown)",
+      "kind": "teardown",
+      "status": "pass",
+      "message": null,
+      "started_at": "2026-11-10T05:08:09.918+00:00",
+      "finished_at": "2026-11-10T05:08:09.921+00:00",
+      "measurements": []
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "id": 3,
+  "serial": "SN-1003",
+  "plan_name": "regulator-quick",
+  "plan_version": "1.0",
+  "plan_hash": "7cd83e75e98ca8af5907645dc841119bf0b8fc3ff7e367287308f6c8ed135397",
+  "plan_source": "{\n  \"name\": \"regulator-quick\",\n  \"version\": \"1.0\",\n  \"description\": \"Short functional check that only needs a supply and a multimeter.\",\n  \"vars\": { \"vnom\": 5.0 },\n  \"instruments\": {\n    \"supply\": { \"driver\": \"psu\", \"address\": \"127.0.0.1:5026\" },\n    \"dmm\": { \"driver\": \"dmm\", \"address\": \"127.0.0.1:5025\" }\n  },\n  \"setup\": [\n    { \"do\": \"supply.set_current_limit\", \"amps\": 0.5 },\n    { \"do\": \"supply.set_voltage\", \"volts\": 12.0 },\n    { \"do\": \"supply.output_on\" }\n  ],\n  \"steps\": [\n    {\n      \"name\": \"output_voltage\",\n      \"sweep\": { \"var\": \"vin\", \"values\": [8.0, 12.0, 16.0] },\n      \"apply\": [{ \"do\": \"supply.set_voltage\", \"volts\": \"=vin\" }],\n      \"settle_s\": 0.01,\n      \"measure\": [\n        { \"name\": \"vout\", \"read\": \"dmm.measure_dc_voltage\", \"units\": \"V\", \"low\": \"=vnom * 0.98\", \"high\": \"=vnom * 1.02\" }\n      ]\n    }\n  ],\n  \"teardown\": [{ \"do\": \"supply.output_off\" }]\n}\n",
+  "variables": {
+    "vnom": 5.0
+  },
+  "operator": "",
+  "software_version": "1.1.0",
+  "status": "aborted",
+  "reason": "step output_voltage: dmm: connection to 127.0.0.1:50090 closed by the instrument (while waiting for a response to 'READ?')",
+  "started_at": "2026-11-10T05:08:16.807+00:00",
+  "finished_at": "2026-11-10T05:08:16.891+00:00",
+  "note": "",
+  "selected_steps": null,
+  "instruments": [
+    {
+      "id": 5,
+      "run_id": 3,
+      "name": "supply",
+      "driver": "psu",
+      "address": "127.0.0.1:50091",
+      "idn": "benchrun,SIM-PSU,SIM0002,1.0"
+    },
+    {
+      "id": 6,
+      "run_id": 3,
+      "name": "dmm",
+      "driver": "dmm",
+      "address": "127.0.0.1:50090",
+      "idn": "benchrun,SIM-DMM,SIM0001,1.0"
+    }
+  ],
+  "steps": [
+    {
+      "id": 7,
+      "run_id": 3,
+      "ordinal": 0,
+      "name": "(setup)",
+      "kind": "setup",
+      "status": "pass",
+      "message": null,
+      "started_at": "2026-11-10T05:08:16.817+00:00",
+      "finished_at": "2026-11-10T05:08:16.858+00:00",
+      "measurements": []
+    },
+    {
+      "id": 8,
+      "run_id": 3,
+      "ordinal": 1,
+      "name": "output_voltage",
+      "kind": "test",
+      "status": "error",
+      "message": "dmm: connection to 127.0.0.1:50090 closed by the instrument (while waiting for a response to 'READ?')",
+      "started_at": "2026-11-10T05:08:16.858+00:00",
+      "finished_at": "2026-11-10T05:08:16.888+00:00",
+      "measurements": [
+        {
+          "id": 7,
+          "run_id": 3,
+          "step_id": 8,
+          "name": "vout",
+          "kind": "read",
+          "point": {
+            "vin": 8.0
+          },
+          "instrument": "dmm",
+          "samples": 1,
+          "value": 4.995959022,
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1,
+          "verdict": "pass",
+          "note": null,
+          "taken_at": "2026-11-10T05:08:16.872+00:00"
+        },
+        {
+          "id": 8,
+          "run_id": 3,
+          "step_id": 8,
+          "name": "vout",
+          "kind": "read",
+          "point": {
+            "vin": 12.0
+          },
+          "instrument": "dmm",
+          "samples": 1,
+          "value": null,
+          "units": "V",
+          "low": 4.9,
+          "high": 5.1,
+          "verdict": "error",
+          "note": "dmm: connection to 127.0.0.1:50090 closed by the instrument (while waiting for a response to 'READ?')",
+          "taken_at": "2026-11-10T05:08:16.885+00:00"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "run_id": 3,
+      "ordinal": 2,
+      "name": "(teardown)",
+      "kind": "teardown",
+      "status": "pass",
+      "message": null,
+      "started_at": "2026-11-10T05:08:16.889+00:00",
+      "finished_at": "2026-11-10T05:08:16.891+00:00",
+      "measurements": []
+    }
+  ]
+}

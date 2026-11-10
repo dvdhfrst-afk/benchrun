@@ -596,7 +596,7 @@ def _add_sim_args(parser: argparse.ArgumentParser) -> None:
 
 
 # Each module named here has ``add_commands(subparsers)``, which adds its commands and sets ``func``.
-COMMAND_GROUPS: Tuple[str, ...] = ()
+COMMAND_GROUPS: Tuple[str, ...] = ("benchrun.archive", "benchrun.maintenance")
 
 
 def build_parser() -> argparse.ArgumentParser:
