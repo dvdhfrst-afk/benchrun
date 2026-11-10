@@ -216,32 +216,32 @@ class RunOptions(Case):
         return EXAMPLES / "fixture_with_operator.json"
 
     def test_prompt_waits_for_the_operator(self):
-        with mock.patch("benchrun.cli._read_line", return_value=True) as asked:
+        with mock.patch("benchrun.session._read_line", return_value=b"") as asked:
             code, out, _ = self.sim_run(plan=self.prompt_plan())
         self.assertEqual(code, EXIT_PASS, out)
         asked.assert_called_once()
         self.assertIn("Seat the unit", out)
 
     def test_prompt_with_nobody_there_aborts_and_says_how(self):
-        with mock.patch("benchrun.cli._read_line", return_value=False):
+        with mock.patch("benchrun.session._read_line", return_value=None):
             code, out, err = self.sim_run(plan=self.prompt_plan())
         self.assertEqual(code, EXIT_ABORTED)
         self.assertIn("--auto-confirm", out + err)
 
     def test_prompt_ctrl_c_aborts(self):
-        def pressed() -> bool:
+        def pressed() -> bytes:
             _thread.interrupt_main()
             time.sleep(5)  # A read that never returns: the run must not wait for it.
-            return True
+            return b""
 
         started = time.monotonic()
-        with mock.patch("benchrun.cli._read_line", pressed):
+        with mock.patch("benchrun.session._read_line", pressed):
             code, _, _ = self.sim_run(plan=self.prompt_plan())
         self.assertEqual(code, EXIT_ABORTED)
         self.assertLess(time.monotonic() - started, 4)
 
     def test_auto_confirm(self):
-        with mock.patch("benchrun.cli._read_line", side_effect=AssertionError("must not ask")):
+        with mock.patch("benchrun.session._read_line", side_effect=AssertionError("must not ask")):
             code, out, _ = self.sim_run("--auto-confirm", plan=self.prompt_plan())
         self.assertEqual(code, EXIT_PASS, out)
         self.assertIn("continued automatically", out)

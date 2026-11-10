@@ -23,6 +23,7 @@ from benchrun.console import (
     table,
     utc_time,
 )
+from benchrun import lots
 from benchrun.errors import PlanError
 from benchrun.files import atomic_write_text
 from benchrun.reports.csv_report import _text as csv_text
@@ -88,15 +89,6 @@ def _view(args: argparse.Namespace) -> str:
     return "summary"
 
 
-def _resolve_lot(conn: Any, text: str) -> int:
-    row = conn.execute("SELECT id FROM lots WHERE name = ?", (text,)).fetchone()
-    if row is None and text.isdigit():
-        row = conn.execute("SELECT id FROM lots WHERE id = ?", (int(text),)).fetchone()
-    if row is None:
-        raise PlanError([f"--lot: no lot named {text!r} in this database"])
-    return int(row["id"])
-
-
 def _check(args: argparse.Namespace, view: str) -> str:
     problems = []
     if not args.plan and not args.product:
@@ -132,7 +124,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
             plan=args.plan,
             product=args.product,
             station=args.station,
-            lot_id=_resolve_lot(store.conn, args.lot) if args.lot is not None else None,
+            lot_id=lots.find(store.conn, args.lot)["id"] if args.lot is not None else None,
             serial_prefix=args.serial,
             since=since,
             until=until,
