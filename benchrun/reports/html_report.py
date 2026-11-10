@@ -162,6 +162,7 @@ def render_html(detail: Dict[str, Any]) -> str:
     variables = ", ".join(f"{k}={v:g}" for k, v in detail["variables"].items())
     for label, value in (
         ("Serial number", detail["serial"]),
+        ("Product", detail.get("product")),
         ("Operator", detail["operator"]),
         ("Note", detail.get("note")),
         ("Started (UTC)", detail["started_at"]),

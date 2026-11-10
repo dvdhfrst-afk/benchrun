@@ -1,0 +1,34 @@
+{
+  "name": "heated-regulator",
+  "version": "1.0",
+  "description": "Regulator output with its fixture plate at 25 C and at 70 C. Needs the fixture_heater plugin from this folder.",
+  "vars": { "vnom": 5.0, "tol_v": 0.1 },
+  "instruments": {
+    "supply": { "driver": "psu", "address": "127.0.0.1:5026" },
+    "dmm": { "driver": "dmm", "address": "127.0.0.1:5025" },
+    "heater": { "driver": "fixture_heater", "address": "127.0.0.1:5035" }
+  },
+  "setup": [
+    { "do": "supply.set_current_limit", "amps": 0.5 },
+    { "do": "supply.set_voltage", "volts": 12.0 },
+    { "do": "supply.output_on" },
+    { "do": "heater.set_temperature", "celsius": 25.0 },
+    { "do": "heater.heater_on" }
+  ],
+  "steps": [
+    {
+      "name": "hot_output",
+      "sweep": { "var": "plate_c", "values": [25.0, 70.0] },
+      "apply": [{ "do": "heater.set_temperature", "celsius": "=plate_c" }],
+      "settle_s": 0.01,
+      "measure": [
+        { "name": "plate", "read": "heater.measure_temperature", "units": "degC", "low": "=plate_c - 2", "high": "=plate_c + 2" },
+        { "name": "vout", "read": "dmm.measure_dc_voltage", "units": "V", "low": "=vnom - tol_v", "high": "=vnom + tol_v" }
+      ]
+    }
+  ],
+  "teardown": [
+    { "do": "heater.heater_off" },
+    { "do": "supply.output_off" }
+  ]
+}

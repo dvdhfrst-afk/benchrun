@@ -6,6 +6,7 @@ import threading
 from typing import Dict, Iterable, Mapping, Optional, Sequence
 
 from benchrun.errors import PlanError
+from benchrun.plugins import simulators as plugin_simulators
 from benchrun.sim.instruments import FAULT_KINDS, INSTRUMENT_CLASSES, Fault, SimInstrument
 from benchrun.sim.model import DUT_VARIANTS, BenchModel, RegulatorParams
 from benchrun.sim.server import InstrumentServer
@@ -15,14 +16,22 @@ PORT_ORDER = ("dmm", "psu", "eload", "scope", "siggen", "smu", "counter", "switc
 NO_READINGS = ("siggen", "switch")  # Their faults count settings, so there is no reading to corrupt.
 
 
+def simulator_classes() -> Dict[str, type]:
+    """Every simulator a bench starts: the built-in ones in port order, then those driver plugins provide."""
+    classes = {kind: INSTRUMENT_CLASSES[kind] for kind in PORT_ORDER}
+    classes.update(plugin_simulators())
+    return classes
+
+
 def parse_fault(text: str) -> Dict[str, Fault]:
     """Parse ``instrument:kind[:after]``, for example ``dmm:drop:5``."""
     pieces = text.split(":")
+    kinds = simulator_classes()
     problem = (
         f"bad fault {text!r}; expected instrument:kind[:after] with instrument in "
-        f"{', '.join(PORT_ORDER)} and kind in {', '.join(FAULT_KINDS)}"
+        f"{', '.join(kinds)} and kind in {', '.join(FAULT_KINDS)}"
     )
-    if len(pieces) not in (2, 3) or pieces[0] not in PORT_ORDER or pieces[1] not in FAULT_KINDS:
+    if len(pieces) not in (2, 3) or pieces[0] not in kinds or pieces[1] not in FAULT_KINDS:
         raise PlanError([problem])
     after = 0
     if len(pieces) == 3:
@@ -39,7 +48,8 @@ class SimBench:
 
     With ``base_port=0`` the operating system picks free ephemeral ports.
     Otherwise instruments take consecutive ports from ``base_port``, in the
-    order of ``PORT_ORDER``. Use as a context manager, or call start and stop.
+    order of ``PORT_ORDER`` and then any plugin simulators. Use as a context
+    manager, or call start and stop.
     """
 
     def __init__(
@@ -62,14 +72,13 @@ class SimBench:
         self.base_port = base_port
         faults = faults or {}
         self.devices: Dict[str, SimInstrument] = {
-            kind: INSTRUMENT_CLASSES[kind](self.model, seed=seed, noise=noise, fault=faults.get(kind))
-            for kind in PORT_ORDER
+            kind: cls(self.model, seed=seed, noise=noise, fault=faults.get(kind)) for kind, cls in simulator_classes().items()
         }
         self.servers: Dict[str, InstrumentServer] = {}
 
     def start(self) -> "SimBench":
         try:
-            for offset, kind in enumerate(PORT_ORDER):
+            for offset, kind in enumerate(self.devices):
                 port = self.base_port + offset if self.base_port else 0
                 server = InstrumentServer(self.devices[kind], self.lock, port)
                 self.servers[kind] = server

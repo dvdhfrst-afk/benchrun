@@ -433,6 +433,7 @@ class Store:
         instrument: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        product: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Runs, newest first, with pass, fail and total measurement counts.
 
@@ -451,6 +452,9 @@ class Store:
         if status is not None:
             clauses.append("status = ?")
             params.append(status)
+        if product is not None:
+            clauses.append("product = ?")
+            params.append(product)
         if instrument is not None:
             clauses.append(
                 "id IN (SELECT run_id FROM run_instruments WHERE instr(lower(COALESCE(idn, '')), lower(?)) > 0)"
@@ -469,7 +473,7 @@ class Store:
             params.append(limit)
         # Choosing the runs first keeps a short listing fast on a large database.
         rows = self.conn.execute(
-            "SELECT r.id, r.serial, r.plan_name, r.plan_version, r.plan_hash, r.operator, r.note, r.selected_steps,"
+            "SELECT r.id, r.serial, r.plan_name, r.plan_version, r.plan_hash, r.product, r.operator, r.note, r.selected_steps,"
             " r.status, r.reason, r.started_at, r.finished_at,"
             " COUNT(m.id) AS measurements,"
             " COALESCE(SUM(m.verdict = 'pass'), 0) AS passed,"

@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Uni
 from benchrun.drivers import DRIVERS
 from benchrun.errors import ExpressionError, PlanError
 from benchrun.expr import FUNCTIONS, Expression
+from benchrun.plugins import driver_problem
 from benchrun.transport import parse_address
 from benchrun.units import compatible
 
@@ -284,8 +285,9 @@ class _Parser:
                 where, spec, ("driver", "address", "timeout_s", "expect_idn", "commands", "reply_pattern"), ("driver",)
             )
             driver = spec.get("driver")
-            if driver not in DRIVERS:
-                self.problem(where, f"unknown driver {driver!r}; available: {', '.join(sorted(DRIVERS))}")
+            trouble = driver_problem(driver)
+            if trouble:
+                self.problem(where, trouble)
                 continue
             address = spec.get("address")
             if address is not None:
@@ -764,3 +766,101 @@ def apply_addresses(plan: Plan, addresses: Mapping[str, str]) -> None:
     problems.extend(f"instrument {name!r} has no address; set it in the plan, a station file or --address" for name in missing)
     if problems:
         raise PlanError(problems)
+
+
+# Product values ----------------------------------------------------------
+
+LimitPair = Tuple[Optional[float], Optional[float]]
+
+
+def find_measure(plan: Plan, step: str, name: str) -> Optional[Measure]:
+    """A step's measurement or summary value by name, or None."""
+    for candidate in plan.steps:
+        if candidate.name == step:
+            return next((m for m in candidate.measures + candidate.summary if m.name == name), None)
+    return None
+
+
+def limit_problem(low: Optional[float], high: Optional[float]) -> Optional[str]:
+    """Why a replacement limit cannot be used, or None."""
+    for label, side in (("low", low), ("high", high)):
+        if side is not None and (isinstance(side, bool) or not isinstance(side, (int, float)) or not math.isfinite(side)):
+            return f"{label} limit {side!r} is not a finite number"
+    if low is None and high is None:
+        return "give a low limit, a high limit or both; to go back to the plan's limits, remove the override"
+    if low is not None and high is not None and low > high:
+        return f"low limit {low:g} is above high limit {high:g}"
+    return None
+
+
+def override_problems(
+    plan: Plan, variables: Mapping[str, float], limits: Mapping[Tuple[str, str], LimitPair]
+) -> List[str]:
+    """Everything wrong with a set of product values for this plan."""
+    problems = []
+    for name, value in variables.items():
+        if name not in plan.variables:
+            known = ", ".join(sorted(plan.variables)) or "none"
+            problems.append(f"variable {name}: the plan has no variable of that name; it has: {known}")
+        elif isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            problems.append(f"variable {name}: {value!r} is not a finite number")
+    steps = {step.name: step for step in plan.steps}
+    for (step_name, name), (low, high) in limits.items():
+        where = f"limit {step_name}.{name}"
+        if step_name not in steps:
+            problems.append(f"{where}: the plan has no step {step_name!r}; it has: {', '.join(steps)}")
+            continue
+        measure = find_measure(plan, step_name, name)
+        if measure is None:
+            names = [m.name for m in steps[step_name].measures + steps[step_name].summary]
+            problems.append(f"{where}: step {step_name} has no measurement {name!r}; it has: {', '.join(names)}")
+            continue
+        if not measure.units:
+            problems.append(
+                f"{where}: the plan gives this measurement no units, so a number for its limit could be misread; "
+                "add units to the plan"
+            )
+            continue
+        trouble = limit_problem(low, high)
+        if trouble:
+            problems.append(f"{where}: {trouble}")
+    return problems
+
+
+def apply_overrides(
+    plan: Plan,
+    variables: Mapping[str, float],
+    limits: Mapping[Tuple[str, str], LimitPair],
+    fixed: Sequence[str] = (),
+) -> None:
+    """Put a product's values into a loaded plan, after checking all of them.
+
+    Variables replace the plan's own, except those named in ``fixed``, which were
+    set on the command line and win. A limit replaces both sides of the plan's
+    limit for one measurement, and a side given as None is left open. The plan's
+    source text is not touched, so a run records the file that was run, and each
+    measurement records the limits it was judged against.
+    """
+    problems = override_problems(plan, variables, limits)
+    if problems:
+        raise PlanError(problems)
+    for name, value in variables.items():
+        if name not in fixed:
+            plan.variables[name] = float(value)
+    for (step_name, name), (low, high) in limits.items():
+        measure = find_measure(plan, step_name, name)
+        if measure is not None:  # Always found: checked above.
+            measure.low = None if low is None else float(low)
+            measure.high = None if high is None else float(high)
+
+
+def describe_limit_side(value: MaybeExpr, variables: Mapping[str, float]) -> str:
+    """A limit side as a number where the plan's variables are enough, else as its expression."""
+    if value is None:
+        return ""
+    if isinstance(value, Expression):
+        try:
+            return f"{value.evaluate(variables):.6g}"
+        except ExpressionError:
+            return f"={value.text}"
+    return f"{float(value):.6g}"
