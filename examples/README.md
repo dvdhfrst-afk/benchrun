@@ -28,11 +28,15 @@ The limits suit the simulated parts. Change them for yours.
 
 ## Sample output
 
-[sample_output](sample_output) holds the reports from one real run of `regulator_quick.json` on the
-simulators, with a failing simulated unit so that there is something to see:
+[sample_output](sample_output) holds every report format from one real run of `regulator_quick.json`
+on the simulators, with a failing simulated unit so that there is something to see, and that run
+exported as JSON Lines and as an Excel workbook:
 
 ```bash
-python -m benchrun run examples/regulator_quick.json --serial SN-1002 --sim --dut high-output --seed 1 --report-dir examples/sample_output
+python -m benchrun run examples/regulator_quick.json --serial SN-1002 --operator "Operator A" --sim --dut high-output --seed 1 --db sample.sqlite --report-dir examples/sample_output --report-format every
+python -m benchrun export --db sample.sqlite --format jsonl --out examples/sample_output/export.jsonl
+python -m benchrun export --db sample.sqlite --format xlsx --out examples/sample_output/export.xlsx
 ```
 
-The HTML file opens in any browser. It is one file and loads nothing else.
+The HTML files open in any browser. Each is one file and loads nothing else.
+[docs/reports.md](../docs/reports.md) describes every format.

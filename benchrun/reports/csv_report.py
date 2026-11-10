@@ -14,7 +14,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Any, Dict, Iterable
+from typing import IO, Any, Dict, Iterable, Iterator, Optional, Tuple
 
 COLUMNS = (
     "run_id",
@@ -50,6 +50,17 @@ def _text(value: Any) -> str:
     return f"'{text}" if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
+def report_rows(detail: Dict[str, Any]) -> Iterator[Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]]:
+    """Each row a run gets, as (step, measurement): either can be None where there is nothing to show."""
+    if not detail["steps"]:
+        yield None, None
+    for step in detail["steps"]:
+        if not step["measurements"] and (step["kind"] == "test" or step["status"] != "pass"):
+            yield step, None
+        for m in step["measurements"]:
+            yield step, m
+
+
 def write_rows(writer: Any, detail: Dict[str, Any]) -> None:
     """Add one run's rows to a ``csv.writer``."""
     run_cells = [
@@ -62,14 +73,14 @@ def write_rows(writer: Any, detail: Dict[str, Any]) -> None:
     ]
     run_note = _text(detail.get("note"))
     blank = [""] * (len(COLUMNS) - len(run_cells) - 4)
-    if not detail["steps"]:
-        writer.writerow(run_cells + ["", "", ""] + blank + [run_note])
-    for step in detail["steps"]:
-        if not step["measurements"] and (step["kind"] == "test" or step["status"] != "pass"):
+    for step, m in report_rows(detail):
+        if step is None:
+            writer.writerow(run_cells + ["", "", ""] + blank + [run_note])
+        elif m is None:
             row = run_cells + [step["name"], step["status"]] + blank + ["", run_note]
             row[COLUMNS.index("note")] = _text(step["message"])
             writer.writerow(row)
-        for m in step["measurements"]:
+        else:
             writer.writerow(
                 run_cells
                 + [
@@ -96,11 +107,15 @@ def render_csv(detail: Dict[str, Any]) -> str:
     return render_many([detail])
 
 
-def render_many(details: Iterable[Dict[str, Any]]) -> str:
-    """One header, then the rows of every run given."""
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
+def write_csv(handle: IO[str], details: Iterable[Dict[str, Any]]) -> None:
+    """One header, then the rows of every run given, taking one run at a time."""
+    writer = csv.writer(handle, lineterminator="\n")
     writer.writerow(COLUMNS)
     for detail in details:
         write_rows(writer, detail)
+
+
+def render_many(details: Iterable[Dict[str, Any]]) -> str:
+    buffer = io.StringIO()
+    write_csv(buffer, details)
     return buffer.getvalue()

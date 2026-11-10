@@ -23,8 +23,8 @@ from benchrun.drivers import DRIVERS
 from benchrun.errors import BenchrunError, InstrumentFault, OperatorUnavailable, PlanError
 from benchrun.files import atomic_write_text
 from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station, safety_notes, select_steps
-from benchrun.reports import FORMATS, write_reports
-from benchrun.reports.csv_report import render_many
+from benchrun.reports import CHOICES, describe_formats, resolve_formats, write_reports
+from benchrun.reports.export import EXPORT_FORMATS, export_runs
 from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_transport
 from benchrun.sim.bench import DEFAULT_BASE_PORT, PORT_ORDER, SimBench, parse_fault
 from benchrun.sim.model import DUT_VARIANTS
@@ -201,6 +201,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     operator = _check_label(args.operator, "--operator")
     note = _check_label(args.note, "--note")
     variables = _parse_variables(args.set)
+    if args.report_format and not args.report_dir:
+        raise PlanError(["--report-format needs --report-dir to say where the reports go"])
+    report_formats = resolve_formats(args.report_format or ["all"])
     bench: Optional[SimBench] = None
     if args.sim:
         faults: Dict[str, Any] = {}
@@ -248,7 +251,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                     )
                 elif args.report_dir:
                     try:
-                        for path in write_reports(detail, args.report_dir):
+                        for path in write_reports(detail, args.report_dir, report_formats):
                             _say(f"Report: {path}")
                     except OSError as exc:
                         _complain(f"error: cannot write reports to {args.report_dir}: {exc}")
@@ -335,7 +338,7 @@ def _pick_run_ids(args: argparse.Namespace, store: Store) -> List[int]:
 def cmd_report(args: argparse.Namespace) -> int:
     if not Path(args.db).exists():
         raise PlanError([f"no results database at {args.db}"])
-    formats = FORMATS if args.format == "all" else (args.format,)
+    formats = resolve_formats(args.format or ["all"])
     with _open_store(args.db) as store:
         run_ids = _pick_run_ids(args, store)
         if not run_ids:
@@ -393,7 +396,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    """Every matching run in one CSV file, for a spreadsheet or a script."""
+    """Every matching run in one CSV, JSON Lines or Excel file, for a spreadsheet or a script."""
     if not Path(args.db).exists():
         raise PlanError([f"no results database at {args.db}"])
     if Path(args.out).exists() and not args.force:
@@ -402,12 +405,13 @@ def cmd_export(args: argparse.Namespace) -> int:
     until = _utc_time(args.until, "--until", end_of_day=True)
     with _open_store(args.db) as store:
         rows = store.find_runs(serial=args.serial, plan=args.plan, status=args.status, since=since, until=until)
-        details = [store.run_detail(row["id"]) for row in reversed(rows)]
-    if not details:
-        _complain("No matching runs, so nothing was written.")
-        return EXIT_USAGE
-    atomic_write_text(args.out, render_many(details))
-    _say(f"Wrote {len(details)} runs to {args.out}")
+        run_ids = [row["id"] for row in reversed(rows)]
+        if not run_ids:
+            _complain("No matching runs, so nothing was written.")
+            return EXIT_USAGE
+        # One run in memory at a time, however many there are.
+        export_runs((store.run_detail(run_id) for run_id in run_ids), args.out, args.format)
+    _say(f"Wrote {_count(len(run_ids), 'run')} to {args.out}")
     return EXIT_PASS
 
 
@@ -634,7 +638,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--auto-confirm", action="store_true", help="carry on past operator prompts without waiting")
     run.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     run.add_argument("--set", action="append", metavar="VAR=NUMBER", help="override a plan variable (repeatable)")
-    run.add_argument("--report-dir", help="also write HTML, CSV and JUnit XML reports here")
+    run.add_argument("--report-dir", help="also write reports here (HTML, CSV and JUnit XML unless --report-format says otherwise)")
+    run.add_argument(
+        "--report-format",
+        action="append",
+        choices=CHOICES,
+        metavar="NAME",
+        help=f"with --report-dir, which report to write (repeatable): {', '.join(CHOICES)}; default all",
+    )
     run.add_argument("--scpi-log", metavar="FILE", help="add all SCPI traffic to this file")
     _add_address_args(run)
     run.add_argument("--sim", action="store_true", help="start private simulators for just this run")
@@ -651,14 +662,25 @@ def build_parser() -> argparse.ArgumentParser:
     _add_address_args(probe)
     probe.set_defaults(func=cmd_probe)
 
-    report = commands.add_parser("report", help="write reports for recorded runs")
+    report = commands.add_parser(
+        "report",
+        help="write reports for recorded runs",
+        epilog=describe_formats(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     report.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     report.add_argument("--run", type=int, help="run id")
     report.add_argument("--latest", action="store_true", help="the newest run")
     report.add_argument("--serial", help="the newest run for this serial")
     report.add_argument("--plan", help="the newest run of this plan")
     report.add_argument("--all", action="store_true", help="with --serial or --plan, every matching run")
-    report.add_argument("--format", default="all", choices=FORMATS + ("all",), help="which format (default: all)")
+    report.add_argument(
+        "--format",
+        action="append",
+        choices=CHOICES,
+        metavar="NAME",
+        help="which format (repeatable; default: all, meaning html, csv and junit; every means every format); listed below",
+    )
     report.add_argument("--out", default="reports", help="output folder (default: reports)")
     report.set_defaults(func=cmd_report)
 
@@ -685,8 +707,15 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--json", action="store_true", help="everything recorded, as JSON")
     show.set_defaults(func=cmd_show)
 
-    export = commands.add_parser("export", help="write many runs into one CSV file")
-    export.add_argument("--out", required=True, help="the CSV file to write")
+    export = commands.add_parser("export", help="write many runs into one CSV, JSON Lines or Excel file")
+    export.add_argument("--out", required=True, help="the file to write")
+    export.add_argument(
+        "--format",
+        choices=EXPORT_FORMATS,
+        default="csv",
+        help="csv (one row per measurement), jsonl (one JSON object per row) or xlsx (workbook with Runs, Steps "
+        "and Measurements sheets); default: csv",
+    )
     export.add_argument("--force", action="store_true", help="replace the file if it already exists")
     export.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     export.add_argument("--serial", help="only this unit")

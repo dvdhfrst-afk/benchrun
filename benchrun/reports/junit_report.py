@@ -8,11 +8,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 # XML 1.0 cannot hold most control characters; instrument responses might.
-_ILLEGAL_XML = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+ILLEGAL_XML = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 
 def _clean(text: Any) -> str:
-    return _ILLEGAL_XML.sub("?", str(text))
+    return ILLEGAL_XML.sub("?", str(text))
 
 
 def _seconds(start: Optional[str], end: Optional[str]) -> float:
