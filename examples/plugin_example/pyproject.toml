@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "benchrun-fixture-heater"
+version = "0.1.0"
+description = "An example benchrun driver plugin, with its simulator, for the FH-1 fixture heater, a made-up instrument."
+requires-python = ">=3.9"
+# benchrun itself is not listed: install it first, from its own folder, so that pip cannot fetch
+# an unrelated package of the same name.
+dependencies = []
+
+[project.entry-points."benchrun.drivers"]
+fixture_heater = "benchrun_fixture_heater.driver:FixtureHeater"
+
+[project.entry-points."benchrun.simulators"]
+fixture_heater = "benchrun_fixture_heater.sim:SimFixtureHeater"
+
+[tool.setuptools]
+packages = ["benchrun_fixture_heater"]

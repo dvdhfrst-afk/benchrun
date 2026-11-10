@@ -442,25 +442,25 @@ class ManyRuns(BenchTestCase):
 class HistoryAgreement(BenchTestCase):
     """``history --stats`` runs on the same engine, and its numbers became exact where they used to drift."""
 
-    def test_identical_values_give_no_cpk_and_zero_stdev(self):
+    def test_identical_values_give_no_ppk_and_zero_stdev(self):
         for _ in range(3):
             measure(self.store, new_run(self.store), [3.3], low=3.2, high=3.4)
         (row,) = self.store.measurement_stats("p")
-        self.assertEqual((row["mean"], row["stdev"], row["cpk"]), (3.3, 0.0, None))
+        self.assertEqual((row["mean"], row["stdev"], row["ppk"]), (3.3, 0.0, None))
 
     def test_values_that_are_not_finite_stay_out(self):
         measure(self.store, new_run(self.store), [1.0, float("inf"), 3.0], high=5.0)
         (row,) = self.store.measurement_stats("p")
         self.assertEqual((row["count"], row["mean"], row["maximum"]), (2, 2.0, 3.0))
 
-    def test_history_cpk_is_the_overall_sigma_index_stats_calls_ppk(self):
+    def test_history_capability_is_the_overall_sigma_index(self):
         for value in (1.0, 3.0, 2.0, 4.0):
             measure(self.store, new_run(self.store), [value], low=0.0, high=10.0)
         (row,) = self.store.measurement_stats("p")
         (summary,) = command.build_report(self.store.conn, Selection(plan="p"), "summary")["measurements"]
         for key in ("count", "fails", "mean", "stdev", "minimum", "maximum", "low", "high"):
             self.assertEqual(row[key], summary[key], key)
-        self.assertEqual(row["cpk"], summary["capability"]["ppk"])
+        self.assertEqual(row["ppk"], summary["capability"]["ppk"])
         summary_entry = self.store.plan_summary("p")
         self.assertEqual(summary_entry, query.yield_by_plan(self.store.conn, Selection(plan="p"))[0])
 
@@ -630,7 +630,7 @@ class Command(unittest.TestCase):
         self.assertEqual(len(history), len(stats))
         for old, new in zip(history, stats):
             self.assertEqual((old["step"], old["name"], old["point"]), (new["step"], new["name"], new["point"]))
-            self.assertEqual((old["count"], old["mean"], old["stdev"], old["cpk"]), (new["count"], new["mean"], new["stdev"], new["capability"]["ppk"]))
+            self.assertEqual((old["count"], old["mean"], old["stdev"], old["ppk"]), (new["count"], new["mean"], new["stdev"], new["capability"]["ppk"]))
 
 
 class Hostile(BenchTestCase):

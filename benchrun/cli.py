@@ -18,15 +18,17 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
-from benchrun import __version__
+from benchrun import __version__, plugins
 from benchrun.drivers import DRIVERS
 from benchrun.errors import BenchrunError, InstrumentFault, OperatorUnavailable, PlanError
 from benchrun.files import atomic_write_text
 from benchrun.plan import Plan, apply_addresses, load_addresses, load_plan, match_station, safety_notes, select_steps
+from benchrun.product_commands import load_product, print_effective_limits
+from benchrun.products import Product
 from benchrun.reports import CHOICES, describe_formats, resolve_formats, write_reports
 from benchrun.reports.export import EXPORT_FORMATS, export_runs
 from benchrun.runner import RUN_ABORTED, RUN_FAIL, RUN_PASS, Runner, default_transport
-from benchrun.sim.bench import DEFAULT_BASE_PORT, PORT_ORDER, SimBench, parse_fault
+from benchrun.sim.bench import DEFAULT_BASE_PORT, SimBench, parse_fault, simulator_classes
 from benchrun.sim.model import DUT_VARIANTS
 from benchrun.stations import add_station_name_arg, read_identity, use_station
 from benchrun.store import Store
@@ -157,7 +159,7 @@ def cmd_sim(args: argparse.Namespace) -> int:
     faults: Dict[str, Any] = {}
     for text in args.fault or []:
         faults.update(parse_fault(text))
-    if not 0 <= args.base_port <= 65536 - len(PORT_ORDER):
+    if not 0 <= args.base_port <= 65536 - len(simulator_classes()):
         raise PlanError([f"--base-port {args.base_port} is out of range; the top port must not pass 65535"])
     bench = SimBench(dut=args.dut, seed=args.seed, noise=args.noise, base_port=args.base_port, faults=faults)
     try:
@@ -168,9 +170,9 @@ def cmd_sim(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     try:
         _say(f"benchrun simulators on 127.0.0.1 (simulated unit: {args.dut}, seed: {args.seed}, noise: {args.noise:g})")
-        for kind in PORT_ORDER:
-            device = bench.devices[kind]
-            _say(f"  {kind:<7} {bench.servers[kind].address:<20} {device.idn}")
+        width = max(7, *(len(kind) for kind in bench.devices))
+        for kind, device in bench.devices.items():
+            _say(f"  {kind:<{width}} {bench.servers[kind].address:<20} {device.idn}")
         if args.write_addresses:
             atomic_write_text(args.write_addresses, json.dumps({"addresses": bench.addresses}, indent=2) + "\n")
             _say(f"Addresses written to {args.write_addresses}")
@@ -185,9 +187,28 @@ def cmd_sim(args: argparse.Namespace) -> int:
         bench.stop()
 
 
-def _load_for_bench(args: argparse.Namespace, variables: Optional[Dict[str, float]] = None) -> Tuple[Plan, str, Dict[str, str]]:
+def _product_and_plan_path(args: argparse.Namespace) -> Tuple[Optional[Product], str]:
+    """The product a command names, if any, and the plan to load: the one given, else the product's."""
+    product = load_product(args.db, args.product) if args.product else None
+    if args.plan:
+        return product, args.plan
+    if product is None:
+        raise PlanError(["give a plan file, or --product PART_NUMBER to use the plan that part number is tested with"])
+    return product, product.plan_file
+
+
+def _load(path: str, variables: Optional[Dict[str, float]], product: Optional[Product]) -> Plan:
+    return product.load_plan(path, variables) if product is not None else load_plan(path, variables)
+
+
+def _load_for_bench(
+    args: argparse.Namespace,
+    variables: Optional[Dict[str, float]] = None,
+    product: Optional[Product] = None,
+    plan_path: Optional[str] = None,
+) -> Tuple[Plan, str, Dict[str, str]]:
     """The plan with its addresses, the station it runs on, and each instrument's asset tag."""
-    plan = load_plan(args.plan, variables)
+    plan = _load(plan_path or args.plan, variables, product)
     if args.station_name:
         if args.station or args.address:
             raise PlanError(["--station-name gives every address; leave out --station and --address"])
@@ -211,6 +232,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.report_format and not args.report_dir:
         raise PlanError(["--report-format needs --report-dir to say where the reports go"])
     report_formats = resolve_formats(args.report_format or ["all"])
+    product, plan_path = _product_and_plan_path(args)
+    if product is not None:
+        product.check_serial(serial)
     bench: Optional[SimBench] = None
     station, asset_tags = "", {}
     if args.sim and args.station_name:
@@ -219,7 +243,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         faults: Dict[str, Any] = {}
         for text in args.fault or []:
             faults.update(parse_fault(text))
-        plan = load_plan(args.plan, variables)
+        plan = _load(plan_path, variables, product)
         bench = SimBench(dut=args.dut, seed=args.seed, noise=args.noise, faults=faults).start()
         try:
             apply_addresses(plan, bench.addresses_for((s.name, s.driver) for s in plan.instruments.values()))
@@ -229,7 +253,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         if args.fault or args.dut != "good":
             raise PlanError(["--dut and --fault only apply with --sim; otherwise set them on the sim command"])
-        plan, station, asset_tags = _load_for_bench(args, variables)
+        plan, station, asset_tags = _load_for_bench(args, variables, product, plan_path)
 
     log_handle = None
     try:
@@ -250,6 +274,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 verbose=args.verbose,
                 station=station,
                 asset_tags=asset_tags,
+                product=product.part_number if product is not None else "",
             )
             with _stop_requests_interrupt(lambda: runner.past_saving):
                 result = runner.run()
@@ -278,10 +303,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    plan = load_plan(args.plan, _parse_variables(args.set))
+    variables = _parse_variables(args.set)
+    product, plan_path = _product_and_plan_path(args)
+    plan = _load(plan_path, variables, product)
     station, asset_tags = use_station(args.db, args.station_name, plan) if args.station_name else ("", {})
     points = sum(len(step.points()) * len(step.measures) + len(step.summary) for step in plan.steps)
-    _say(f"{args.plan}: OK")
+    _say(f"{plan_path}: OK")
     _say(f"  {plan.name} {plan.version}".rstrip())
     _say(f"  {len(plan.instruments)} instruments, {len(plan.steps)} steps, {points} measurements per run")
     if station:
@@ -292,6 +319,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         _say(f"  Needs an address from --station, --address or --sim: {', '.join(unaddressed)}")
     for note in safety_notes(plan):
         _say(f"  Note: {note}")
+    if product is not None:
+        print_effective_limits(plan, product)
     return EXIT_PASS
 
 
@@ -380,7 +409,12 @@ def cmd_show(args: argparse.Namespace) -> int:
     if detail["selected_steps"] is not None:
         _say(f"Only these steps were selected: {', '.join(detail['selected_steps'])}")
     _say(f"Started {detail['started_at']}, finished {detail['finished_at'] or 'never'} (UTC)")
-    for label, value in (("Station", detail["station"]), ("Operator", detail["operator"]), ("Note", detail["note"])):
+    for label, value in (
+        ("Product", detail["product"]),
+        ("Station", detail["station"]),
+        ("Operator", detail["operator"]),
+        ("Note", detail["note"]),
+    ):
         if value:
             _say(f"{label}: {value}")
     _say()
@@ -484,7 +518,10 @@ def _print_runs(rows: List[Dict[str, Any]]) -> None:
         )
         for row in rows
     ]
-    headers = ("run", "started (UTC)", "serial", "plan", "status", "pass", "fail", "error", "reason or note")
+    headers: Tuple[str, ...] = ("run", "started (UTC)", "serial", "plan", "status", "pass", "fail", "error", "reason or note")
+    if any(row["product"] for row in rows):
+        headers = headers[:3] + ("product",) + headers[3:]
+        table_rows = [cells[:3] + (row["product"],) + cells[3:] for cells, row in zip(table_rows, rows)]
     _say(_table(headers, table_rows))
 
 
@@ -528,6 +565,7 @@ def cmd_history(args: argparse.Namespace) -> int:
             since=since,
             until=until,
             station=args.station,
+            product=args.product,
         )
         summary = store.plan_summary(args.plan) if args.plan else None
         stats = store.measurement_stats(args.plan, args.serial) if args.stats else None
@@ -566,13 +604,45 @@ def cmd_history(args: argparse.Namespace) -> int:
     return EXIT_PASS
 
 
+def _print_plugins(as_json: bool) -> int:
+    """Every plugin found, usable or not, and why not. Exit 3 when any cannot be used."""
+    drivers, simulators = plugins.load()
+    found = list(drivers.values()) + list(simulators.values())
+    rows = [
+        {
+            "name": p.name,
+            "kind": "driver" if p.group == plugins.DRIVER_GROUP else "simulator",
+            "package": p.package,
+            "target": p.target,
+            "usable": p.problem is None,
+            "problem": p.problem,
+        }
+        for p in found
+    ]
+    if as_json:
+        _say(json.dumps({"plugins": rows}, indent=2))
+    elif not rows:
+        _say(f"No driver plugins are installed (entry point groups {plugins.DRIVER_GROUP} and {plugins.SIMULATOR_GROUP}).")
+    else:
+        cells = [(r["name"], r["kind"], r["package"], r["target"], "ok" if r["usable"] else r["problem"]) for r in rows]
+        _say(_table(("name", "kind", "package", "from", "state"), cells))
+    return EXIT_ABORTED if any(not r["usable"] for r in rows) else EXIT_PASS
+
+
 def cmd_drivers(args: argparse.Namespace) -> int:
+    if args.plugins:
+        return _print_plugins(args.json)
+    if args.json:
+        raise PlanError(["--json goes with --plugins"])
+    plugins.load()
     names = [args.driver] if args.driver else sorted(DRIVERS)
     for name in names:
-        if name not in DRIVERS:
-            raise PlanError([f"unknown driver {name!r}; available: {', '.join(sorted(DRIVERS))}"])
+        trouble = plugins.driver_problem(name)
+        if trouble:
+            raise PlanError([trouble])
         driver = DRIVERS[name]
-        _say(f"{name}: {driver.__doc__.strip().splitlines()[0] if driver.__doc__ else ''}")
+        summary = (driver.__doc__ or "").strip().splitlines()
+        _say(f"{name} ({plugins.origin(name)}): {summary[0] if summary else ''}")
         for label, members in (("action", driver.actions()), ("reading", driver.readings())):
             for method, func in sorted(members.items()):
                 params = [p for p in inspect.signature(func).parameters if p != "self"]
@@ -615,6 +685,7 @@ COMMAND_GROUPS: Tuple[str, ...] = (
     "benchrun.archive",
     "benchrun.maintenance",
     "benchrun.stats.command",
+    "benchrun.product_commands",
 )
 
 
@@ -639,8 +710,9 @@ def build_parser() -> argparse.ArgumentParser:
     sim.set_defaults(func=cmd_sim)
 
     run = commands.add_parser("run", help="run a test plan on one unit")
-    run.add_argument("plan", help="path to a plan JSON file")
+    run.add_argument("plan", nargs="?", help="path to a plan JSON file; with --product, the product's plan if left out")
     run.add_argument("--serial", required=True, help="unit serial number")
+    run.add_argument("--product", metavar="PART_NUMBER", help="test as this product: its plan, variables, limits and serial pattern")
     run.add_argument("--operator", default="", help="operator label to record")
     run.add_argument("--note", default="", help="one line to keep with the run, such as why it is being retested")
     run.add_argument(
@@ -669,10 +741,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.set_defaults(func=cmd_run)
 
     validate = commands.add_parser("validate", help="check a plan without touching any instrument")
-    validate.add_argument("plan", help="path to a plan JSON file")
+    validate.add_argument("plan", nargs="?", help="path to a plan JSON file; with --product, the product's plan if left out")
     validate.add_argument("--set", action="append", metavar="VAR=NUMBER", help="override a plan variable (repeatable)")
     add_station_name_arg(validate)
-    validate.add_argument("--db", default=DEFAULT_DB, help=f"results database holding the station (default: {DEFAULT_DB})")
+    validate.add_argument("--product", metavar="PART_NUMBER", help="check with this product's values, and show the limits that apply")
+    validate.add_argument("--db", default=DEFAULT_DB, help=f"results database holding the station or product (default: {DEFAULT_DB})")
     validate.set_defaults(func=cmd_validate)
 
     probe = commands.add_parser("probe", help="connect to a plan's instruments and show their *IDN? responses")
@@ -708,6 +781,7 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--db", default=DEFAULT_DB, help=f"results database (default: {DEFAULT_DB})")
     history.add_argument("--serial", help="only this unit")
     history.add_argument("--plan", help="only this plan; also shows yield")
+    history.add_argument("--product", metavar="PART_NUMBER", help="only runs tested as this product")
     history.add_argument("--status", choices=("pass", "fail", "aborted", "running"), help="only runs with this result")
     history.add_argument("--station", metavar="NAME", help="only runs recorded on this station")
     history.add_argument("--instrument", metavar="TEXT", help="only runs where an instrument's *IDN? response contains this")
@@ -754,6 +828,10 @@ def build_parser() -> argparse.ArgumentParser:
     drivers = commands.add_parser("drivers", help="list drivers and what plans can call on them")
     drivers.add_argument("driver", nargs="?", help="just this driver")
     drivers.add_argument("--commands", action="store_true", help="also show SCPI templates plans can override")
+    drivers.add_argument(
+        "--plugins", action="store_true", help="list driver plugins from installed packages, and why any cannot be used (exit 3)"
+    )
+    drivers.add_argument("--json", action="store_true", help="with --plugins, machine-readable output")
     drivers.set_defaults(func=cmd_drivers)
 
     raw = commands.add_parser("scpi", help="send raw SCPI commands to one instrument")
