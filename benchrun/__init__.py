@@ -5,4 +5,4 @@ over a raw TCP socket, runs JSON test plans per unit serial number, and records
 every measurement in SQLite.
 """
 
-__version__ = "1.1.0"
+__version__ = "2.0.0"

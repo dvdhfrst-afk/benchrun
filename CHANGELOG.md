@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.0.0 (2026-11-09)
+
+### Added
+
+- Instrument inventory (`instrument`), named stations built from it (`station`), and `run`, `probe`
+  and `validate --station-name`. A run on a station records each instrument's asset tag. See
+  `docs/stations.md`.
+- An audit log of every change to instruments, stations, products and lots, and of archive imports
+  and runs marked abandoned, with the `audit` command. Every command that writes it takes `--actor`.
+- Products (`product`): a part number's plan, variables, limits and serial pattern, used by
+  `run --product`. Driver plugins from installed packages. See `docs/products.md` and
+  `docs/plugins.md`.
+- Lots (`lot`): open, test units one after another with `lot run`, add one with `run --lot`, show,
+  report, close and reopen. See `docs/lots.md`.
+- `stats`: Cp, Cpk, Pp and Ppk, yield, failure Pareto, histograms and individuals control charts with
+  the Western Electric rules, as text, JSON, CSV or HTML. See `docs/statistics.md`.
+- Report formats `json`, `markdown` and `certificate` (`report --format every`), and `export --format
+  jsonl` and `xlsx`. See `docs/reports.md`.
+- `archive export`, `list`, `verify` and `import` to move runs between databases with checks, and the
+  `db` commands `info`, `check`, `backup`, `vacuum` and `mark-abandoned`. See `docs/archives.md` and
+  `docs/database.md`.
+- `serve`: a web interface and JSON API over a results database, with downloads and an optional run
+  launcher. See `docs/web.md`.
+- `history`, `export` and `archive export` take `--product`, `--lot` and `--station`.
+
+### Changed
+
+- Results databases go to schema 3. An older file is upgraded in one transaction when it is first
+  opened, and a copy is kept beside it as `NAME.schema2.bak` (or `.schema1.bak`). Every run gets a
+  uuid. Version 1.1.0 cannot read the new file.
+- The capability column of `history --stats` is now labelled `ppk`. It was labelled `cpk`, but it
+  always computed the overall-sigma index, which is Ppk; the numbers are unchanged. `stats` gives
+  both Cpk and Ppk.
+- The default report formats are unchanged: `report` and `run --report-dir` still write `all`, meaning
+  html, csv and junit, and `export` still writes the same CSV file by default.
+- `--actor` defaults to your login name on every command that writes the audit log.
+- Part numbers and lot names are unique ignoring case and found ignoring case, like asset tags and
+  station names, in every command, filter and web page.
+- `instrument export` and `station export` write to `--out FILE`, as every other export does.
+
+### Fixed
+
+- A unit's page in the web interface showed a stray `</p>` and said "1 runs".
+- A form too large for the web interface could reset the connection instead of answering 413.
+- The web pages and API took a lot only by id in its address; they now take its name too.
+- A product's web page opened with another case of its part number showed that spelling as its name.
+
 ## 1.1.0 (2026-11-07)
 
 ### Added
@@ -39,7 +86,7 @@
 - A sweep step of 1e-13 rounded every point to 0.
 - Nested sweeps could fill memory before being refused.
 - A key given twice in a plan silently dropped the first, which could remove a limit.
-- Deeply nested JSON printed a stack trace.
+- Deeply nested JSON printed a Python traceback.
 - A line break or a non-ASCII character in a command could send a second command, or turn a setting into
   a query.
 - `1_000` was accepted as a number in replies. A channel of 1.5 was cut down to 1.
@@ -55,7 +102,7 @@
 - A stop request after the switch-off could leave a run marked as still going, or lose its result line.
 - `reply_pattern` could read `0,500 V` as 500, and got in the way of `*OPC?` and status queries.
 - Text that cannot be stored, from a terminal in another encoding or a lone escape in a plan, printed a
-  stack trace. An impossible host name did too.
+  Python traceback. An impossible host name did too.
 
 ## 1.0.0
 

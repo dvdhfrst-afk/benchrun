@@ -6,6 +6,11 @@ written in JSON (JavaScript Object Notation) against one unit serial number at a
 every measurement in a SQLite database, and writes reports as HTML (HyperText Markup Language),
 CSV (comma-separated values) and JUnit XML (Extensible Markup Language).
 
+For a test line, the same database also holds the instruments you own and named stations built
+from them, products with their own limits, and lots with their yield, with every change kept in an
+audit log. `stats` gives capability, yield and control charts, `archive` moves runs between
+databases with checks, and `serve` shows it all in a web browser.
+
 It needs Python 3.9 or newer and nothing else: no VISA (Virtual Instrument Software Architecture)
 library and no third-party package. You can run it straight from a clone, or install it to get a
 `benchrun` command.
@@ -23,7 +28,7 @@ manuals; [docs/drivers.md](docs/drivers.md) cites them and says what was not con
   check. A lost connection, a timeout, a rejected setting or a garbled response ends the step with
   a readable message and records the run as aborted. Tests cover that a supply refusing a setting
   cannot turn into a pass measured at the old setting.
-- **Traceability is automatic.** Each run stores the serial number, each instrument's `*IDN?`
+- **Every result says where it came from.** Each run stores the serial number, each instrument's `*IDN?`
   response and address, every value with its limits and verdict, the full plan text and its hash.
 - **Plans are checked before the bench is powered.** `validate` reports every typo, unknown method,
   unit mismatch and bad limit at once, with no instruments connected.
@@ -34,6 +39,12 @@ manuals; [docs/drivers.md](docs/drivers.md) cites them and says what was not con
   A power cut or a killed process cannot switch anything off; see
   [What benchrun cannot do](#what-benchrun-cannot-do).
 - **An interrupted run keeps what it measured.** Every measurement is committed as it is taken.
+- **Production records live with the results.** A run on a named station records which instrument,
+  by asset tag, filled each role. A product supplies its plan, variables, limits and serial pattern,
+  checked before anything is commanded. A lot counts units tested and to test, and first-pass and
+  final yield.
+- **Numbers you can check.** `stats` documents every formula it uses, and leaves aborted, unfinished
+  and partial runs out of yield and capability, saying how many it left out.
 
 ## Install
 
@@ -167,7 +178,7 @@ python -m benchrun run examples/regulator_line_load.json --serial SN-2003 --sim 
 | 2 | Bad plan or bad arguments, or nothing to read: no such run or database for `report`, `show`, `export` or `history`. No run was recorded |
 | 3 | Run aborted, an instrument could not be reached, or the database or a report file could not be used |
 
-An error message and these codes are all a user error produces; a stack trace is a bug. Code 3 wins over the verdict if a report cannot be written after the run: the printed `RESULT` line
+An error message and these codes are all a user error produces; a Python traceback is a bug. Code 3 wins over the verdict if a report cannot be written after the run: the printed `RESULT` line
 and the database still hold the verdict. `history` with no matches prints that and exits 0.
 
 ## How a run is judged
@@ -281,7 +292,7 @@ python -m benchrun report --run 3 --format junit --out reports
 - **CSV** has one row per measurement, with values at full precision. A step with no measurements,
   such as a skipped one, gets one row with the measurement columns empty.
 - **JUnit XML** has one test case per measurement. Failures and aborts show as `failure` and
-  `error`, and traceability data is in the suite's properties.
+  `error`, and the serial, plan hash and instruments are in the suite's properties.
 
 Report files are named `run-000012-SERIAL-20261107T101500.html`, using the run's start time in
 UTC (Coordinated Universal Time) and the serial with anything unsafe in a file name replaced. They
@@ -313,6 +324,80 @@ python -m benchrun history --plan regulator-line-load --stats
 ```bash
 python -m benchrun history --serial SN-1001 --json
 ```
+
+`report --format every` adds a JSON record, a Markdown summary and a printable test certificate, and
+`export --format` takes `csv`, `jsonl` or `xlsx`. [docs/reports.md](docs/reports.md) has the details.
+
+## A small production setup
+
+This walk-through was run on the simulators, with `python -m benchrun sim` in another terminal.
+Every command changing a shared record takes `--actor`, kept in the audit log; left out, it is your
+login name. Put the two simulated instruments in the inventory and make a station of them
+([docs/stations.md](docs/stations.md)):
+
+```bash
+python -m benchrun instrument add PSU-0001 --driver psu --address 127.0.0.1:5026 --serial-number SIM0002 --location "Lab 1"
+```
+
+```bash
+python -m benchrun instrument add DMM-0001 --driver dmm --address 127.0.0.1:5025 --serial-number SIM0001 --location "Lab 1"
+```
+
+```bash
+python -m benchrun station create LINE-1 --location "Lab 1"
+```
+
+Then `station assign LINE-1 supply PSU-0001` and `station assign LINE-1 dmm DMM-0001`, and
+`station check LINE-1` confirms each instrument answers as the inventory says. A part number names
+its plan, and can carry its own variables, limits and serial pattern ([docs/products.md](docs/products.md)):
+
+```bash
+python -m benchrun product add REG-500 --plan examples/regulator_quick.json --serial-pattern "R500-\d{4}"
+```
+
+```bash
+python -m benchrun product set-limit REG-500 output_voltage vout --low 4.95 --high 5.05
+```
+
+Open a lot of five units and test the four serials in `tray1.txt` on the station, one run each
+([docs/lots.md](docs/lots.md)):
+
+```bash
+python -m benchrun lot open WO-0001 --product REG-500 --quantity 5
+```
+
+```bash
+python -m benchrun lot run WO-0001 --serials tray1.txt --station-name LINE-1 --operator "Operator A"
+```
+
+All four passed. A fifth unit added with `run --product REG-500 --serial R500-0005 --lot WO-0001`
+failed with a high output, and passed after rework. The lot then stood at:
+
+```text
+Units: 5 of 5 units tested, 0 to go
+First-pass yield 80.0% (4 of 5 units), final yield 100.0% (5 of 5).
+Retests: 1 run on 1 unit
+```
+
+`lot report WO-0001 --out reports` writes the lot as HTML, CSV and JSON. `stats` gives capability
+(Cp, Cpk, Pp, Ppk), yield, a failure Pareto, histograms and control charts for any choice of plan,
+product, station, lot or dates, with every formula in [docs/statistics.md](docs/statistics.md):
+
+```bash
+python -m benchrun stats --product REG-500 --lot WO-0001 --yield
+```
+
+To bring each bench's runs into one database, `archive export --lot WO-0001 --out wo1.zip` and then
+`archive import wo1.zip --db central.sqlite` ([docs/archives.md](docs/archives.md)); `db info` and
+`db check` look after a database ([docs/database.md](docs/database.md)). To browse everything,
+including the audit log, at http://127.0.0.1:8765/ ([docs/web.md](docs/web.md)):
+
+```bash
+python -m benchrun serve
+```
+
+A driver for an instrument benchrun does not know can come from an installed package
+([docs/plugins.md](docs/plugins.md)).
 
 ## Pointing it at real instruments
 
@@ -402,7 +487,14 @@ To see all traffic from a run, add `--scpi-log traffic.scpi.log` to `run`. If so
 - **The network is not protected.** SCPI over TCP has no login and no encryption, so keep instruments
   on a bench network you trust. See [SECURITY.md](SECURITY.md).
 - **Results are not tamper-proof.** The hash in each run shows which plan ran. It does not prove that
-  the database has not been edited.
+  the database has not been edited, and neither does the audit log.
+- **The web interface has no login and no encryption.** It listens on this computer only unless
+  given `--public`, and then anyone who can reach it sees every result.
+- **Archives carry runs, not set-up.** A run arrives with its lot, its station name, its product's
+  part number and its instruments' asset tags, but the inventory, stations and products themselves
+  stay in the database they were made in.
+- **A few runs make poor statistics.** `stats` computes capability from two values, but with fewer
+  than about 25 the indices change a lot from one batch to the next.
 
 ## What has and has not been tested
 
@@ -411,13 +503,17 @@ To see all traffic from a run, add `--scpi-log traffic.scpi.log` to `run`. If so
 | Physical instruments of any kind | **Never.** No driver has met the instrument it was written for |
 | Bundled simulators | Every driver, example and failure mode in the test suite |
 | Real sockets to a separate process | Timeouts, late, partial, garbled and flooded replies, dropped connections, a process dying mid-run, wrong identity, outputs that refuse to go off, stopping a run by signal |
-| Python | Full suite on 3.9 and 3.12 on Windows, and on 3.9 and 3.14 on Linux. Other versions not run |
-| Operating systems | Windows 11, and Linux (Debian-based Python 3.9 container as a non-root user; Ubuntu under WSL, the Windows Subsystem for Linux, as root) |
+| Python | Version 2.0.0: full suite on 3.9 and 3.12 on Windows 11. Version 1.1.0 also ran on 3.9 and 3.14 on Linux; 2.0.0 has not been run on Linux. Other versions not run |
+| Operating systems | Windows 11. Linux for 1.1.0 only (Debian-based Python 3.9 container as a non-root user; Ubuntu under WSL, the Windows Subsystem for Linux, as root) |
+| Inventory, stations, products, lots, statistics, archives, `db`, web | The walk-through above, end to end on simulators started by `sim` in a separate process, plus every report and export format, an archive imported into a second database, `db info` and `db check` on both, and the web pages and API read with Python's `urllib` |
+| Upgrading a 1.1.0 database | A database written by 1.1.0 (pass, fail, aborted and some-steps runs) upgraded to schema 3 with its backup kept. Its runs read correctly in `history`, `stats`, `show`, every report and export format, `archive export` and `import`, a lot, and the web pages; a run file from 1.1.0's `show --json` imported and was recognised as already there. 1.1.0 then refuses the upgraded file, as intended |
+| Web browsers | **Not tried.** The web interface was read with Python's `urllib` and the test suite's HTTP client, never in a real browser |
+| xlsx exports | Checked as zip and XML by the tests and by reading them back with Python. **Never opened in Excel** or any other spreadsheet |
 | macOS | Not run; no reason known why it would differ from Linux |
 | More than one benchrun on one database | Six processes at once on one file, nothing lost. Each waits up to 30 seconds for the others |
-| Scale | 2,000 simulated units in a row on one database: 1,760 pass, 160 fail and 80 aborted, each as expected, with the supply off after every one and no run left open. One plan with a sweep of 100,000 points, the most allowed |
+| Scale | With 1.1.0: 2,000 simulated units in a row on one database: 1,760 pass, 160 fail and 80 aborted, each as expected, with the supply off after every one and no run left open. One plan with a sweep of 100,000 points, the most allowed |
 
-What those two runs measured, on Windows 11 with Python 3.9, with simulators on the same machine and
+What those two runs measured, with version 1.1.0 (not repeated for 2.0.0), on Windows 11 with Python 3.9, with simulators on the same machine and
 other work running at the same time. They measure benchrun and SQLite, not a bench: real instruments
 are far slower than simulators. Run [tests/soak.py](tests/soak.py) to get your own.
 
@@ -459,10 +555,17 @@ Use `--base-port` if ports 5025 to 5034 are taken. `--base-port 0` takes any fre
 | `benchrun/drivers/` | Instrument base class and one driver per instrument type |
 | `benchrun/plan.py`, `expr.py`, `units.py`, `limits.py` | Plan validation, expressions, units, verdicts |
 | `benchrun/runner.py` | Executes a plan and decides the result |
+| `benchrun/session.py` | What `run` and `lot run` share: addresses, simulators, one unit's run |
 | `benchrun/store.py` | SQLite schema, upgrades of older databases, recording and queries |
-| `benchrun/reports/` | HTML, CSV and JUnit XML writers |
+| `benchrun/reports/` | Report formats, the lot report, and CSV, JSON Lines and xlsx exports |
 | `benchrun/sim/` | SCPI parser, instruments, regulator model and socket server |
-| `benchrun/cli.py` | Command line |
+| `benchrun/inventory.py`, `stations.py`, `audit.py` | Instrument inventory, named stations, the audit log |
+| `benchrun/products.py`, `product_commands.py`, `plugins.py` | Products and their values; driver plugins |
+| `benchrun/lots.py`, `lot_commands.py` | Lots and `lot run` |
+| `benchrun/stats/` | Statistics engine, queries, charts and the `stats` command |
+| `benchrun/archive.py`, `maintenance.py` | Run archives; the `db` commands |
+| `benchrun/web/` | `serve`: pages, JSON API, downloads and the run launcher |
+| `benchrun/cli.py`, `console.py` | Command line, and the output and argument helpers every command uses |
 | `tests/` | Standard library `unittest` suite, the fake instrument and `soak.py` |
 
 ## Checks
