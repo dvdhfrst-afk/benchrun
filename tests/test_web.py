@@ -443,8 +443,10 @@ class Downloads(ServerCase):
         before = set(Path(tempfile.gettempdir()).glob("benchrun-web-*"))
         self.fetch("/download/export?format=csv")
         self.fetch("/download/archive")
-        after = set(Path(tempfile.gettempdir()).glob("benchrun-web-*"))
-        self.assertEqual(after - before, set())
+        deadline = time.monotonic() + 5  # The server removes each file just after the last byte is sent.
+        while time.monotonic() < deadline and set(Path(tempfile.gettempdir()).glob("benchrun-web-*")) - before:
+            time.sleep(0.05)
+        self.assertEqual(set(Path(tempfile.gettempdir()).glob("benchrun-web-*")) - before, set())
 
 
 class Security(ServerCase):
