@@ -93,6 +93,10 @@ class Runner:
         only_steps: Optional[Sequence[str]] = None,
         prompt: Callable[[str], None] = _no_operator,
         verbose: bool = False,
+        station: str = "",
+        product: str = "",
+        lot_id: Optional[int] = None,
+        asset_tags: Optional[Mapping[str, str]] = None,
     ):
         self.plan = plan
         self.store = store
@@ -106,6 +110,10 @@ class Runner:
         self.only_steps = None if only_steps is None else list(only_steps)
         self.prompt = prompt
         self.verbose = verbose
+        self.station = station
+        self.product = product
+        self.lot_id = lot_id
+        self.asset_tags = dict(asset_tags or {})  # Plan instrument name to inventory asset tag.
         self.instruments: Dict[str, Instrument] = {}  # Identified, so safe to command.
         self._opened: List[Instrument] = []  # Everything with a socket to close.
         self._made_safe = False
@@ -132,6 +140,9 @@ class Runner:
             __version__,
             self.note,
             self.only_steps,
+            station=self.station,
+            product=self.product,
+            lot_id=self.lot_id,
         )
         self.console(f"Run {self.run_id}: serial {self.serial}, plan {plan.name} {plan.version}".rstrip())
         setup_id = self.store.add_step(self.run_id, 0, "(setup)", "setup")
@@ -226,7 +237,7 @@ class Runner:
 
     def _connect(self, name: str) -> None:
         spec = self.plan.instruments[name]
-        row_id = self.store.add_instrument(self.run_id, name, spec.driver, spec.address or "")
+        row_id = self.store.add_instrument(self.run_id, name, spec.driver, spec.address or "", self.asset_tags.get(name))
         transport = self.transport_factory(spec.address or "", spec.timeout_s)
         if self.scpi_log is not None:
             transport = LoggingTransport(transport, name, self.scpi_log)

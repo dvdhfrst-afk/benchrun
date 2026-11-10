@@ -301,12 +301,15 @@ class Store:
         software_version: str,
         note: str = "",
         selected_steps: Optional[Sequence[str]] = None,
+        station: str = "",
+        product: str = "",
+        lot_id: Optional[int] = None,
     ) -> int:
         with self.conn:
             cursor = self.conn.execute(
                 "INSERT INTO runs (uuid, serial, plan_name, plan_version, plan_hash, plan_source, variables,"
-                " operator, software_version, note, selected_steps, status, started_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+                " operator, software_version, note, selected_steps, station, product, lot_id, status, started_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
                 (
                     uuid.uuid4().hex,
                     serial,
@@ -319,16 +322,19 @@ class Store:
                     software_version,
                     note,
                     None if selected_steps is None else json.dumps(list(selected_steps)),
+                    station,
+                    product,
+                    lot_id,
                     now_iso(),
                 ),
             )
         return int(cursor.lastrowid)
 
-    def add_instrument(self, run_id: int, name: str, driver: str, address: str) -> int:
+    def add_instrument(self, run_id: int, name: str, driver: str, address: str, asset_tag: Optional[str] = None) -> int:
         with self.conn:
             cursor = self.conn.execute(
-                "INSERT INTO run_instruments (run_id, name, driver, address) VALUES (?, ?, ?, ?)",
-                (run_id, name, driver, address),
+                "INSERT INTO run_instruments (run_id, name, driver, address, asset_tag) VALUES (?, ?, ?, ?, ?)",
+                (run_id, name, driver, address, asset_tag),
             )
         return int(cursor.lastrowid)
 
