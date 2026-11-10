@@ -9,12 +9,13 @@ the upgrade happens in one transaction, so a failure leaves it as it was.
 from __future__ import annotations
 
 import json
-import math
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+
+from benchrun.stats import query as stats_query
 
 SCHEMA_VERSION = 3
 LOCK_WAIT_S = 30.0  # Another process may be writing to the same database.
@@ -510,105 +511,15 @@ class Store:
         return detail
 
     def plan_summary(self, plan: str) -> Dict[str, Any]:
-        """Run counts and first-pass yield for a plan.
-
-        First-pass yield counts each serial once: its first run that reached a
-        verdict. Aborted runs say nothing about the unit, so they are excluded,
-        and so are runs of only some of the plan's steps, which are counted apart.
-        """
-        rows = self.conn.execute(
-            "SELECT id, serial, status, selected_steps FROM runs WHERE plan_name = ? ORDER BY id", (plan,)
-        ).fetchall()
-        counts = {"pass": 0, "fail": 0, "aborted": 0, "running": 0}
-        partial = 0
-        first_verdict: Dict[str, str] = {}
-        for row in rows:
-            if row["selected_steps"] is not None:
-                partial += 1
-                continue
-            counts[row["status"]] = counts.get(row["status"], 0) + 1
-            if row["status"] in ("pass", "fail") and row["serial"] not in first_verdict:
-                first_verdict[row["serial"]] = row["status"]
-        units = len(first_verdict)
-        first_pass = sum(1 for verdict in first_verdict.values() if verdict == "pass")
-        return {
-            "plan": plan,
-            "runs": len(rows),
-            "counts": counts,
-            "partial_runs": partial,
-            "serials": len({row["serial"] for row in rows}),
-            "units_with_verdict": units,
-            "first_pass_units": first_pass,
-            "first_pass_yield": first_pass / units if units else None,
-        }
+        """Run counts and yield for a plan; see ``benchrun.stats.query.yield_by_plan``."""
+        return stats_query.plan_summary(self.conn, plan)
 
     def measurement_stats(self, plan: str, serial: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Per-measurement statistics across completed runs of a plan.
-
-        Grouped by step, measurement and sweep point, because a value measured
-        at 7 V and at 20 V are different populations, and by units and limits,
-        because capability only means something against one set of limits.
-        Aborted runs and runs of only some steps are excluded.
-        """
-        sql = (
-            "SELECT s.name AS step, m.name, m.point, m.units, m.value, m.low, m.high, m.verdict"
-            " FROM measurements m JOIN steps s ON s.id = m.step_id JOIN runs r ON r.id = m.run_id"
-            " WHERE r.plan_name = ? AND r.status IN ('pass', 'fail') AND r.selected_steps IS NULL"
-        )
-        params: List[Any] = [plan]
-        if serial is not None:
-            sql += " AND r.serial = ?"
-            params.append(serial)
-        groups: Dict[tuple, Dict[str, Any]] = {}
-        for row in self.conn.execute(sql + " ORDER BY m.id", params):
-            key = (row["step"], row["name"], row["point"], row["units"], row["low"], row["high"])
-            group = groups.setdefault(
-                key,
-                {
-                    "step": row["step"],
-                    "name": row["name"],
-                    "point": json.loads(row["point"]),
-                    "units": row["units"],
-                    "low": row["low"],
-                    "high": row["high"],
-                    "values": [],
-                    "fails": 0,
-                },
-            )
-            if row["value"] is not None:
-                group["values"].append(row["value"])
-            if row["verdict"] == "fail":
-                group["fails"] += 1
-        return [_finish_stats(group) for group in groups.values()]
+        """Per-measurement statistics across complete runs of a plan; see ``benchrun.stats.query``."""
+        return stats_query.measurement_stats(self.conn, plan, serial)
 
 
 def _decode_selection(row: Dict[str, Any]) -> Dict[str, Any]:
     if row.get("selected_steps") is not None:
         row["selected_steps"] = json.loads(row["selected_steps"])
     return row
-
-
-def _finish_stats(group: Dict[str, Any]) -> Dict[str, Any]:
-    values = group.pop("values")
-    count = len(values)
-    mean = sum(values) / count if count else None
-    stdev = None
-    if count >= 2:
-        stdev = math.sqrt(sum((v - mean) ** 2 for v in values) / (count - 1))
-    cpk = None
-    if stdev and (group["low"] is not None or group["high"] is not None):
-        sides = []
-        if group["high"] is not None:
-            sides.append((group["high"] - mean) / (3.0 * stdev))
-        if group["low"] is not None:
-            sides.append((mean - group["low"]) / (3.0 * stdev))
-        cpk = min(sides)
-    group.update(
-        count=count,
-        mean=mean,
-        stdev=stdev,
-        minimum=min(values) if values else None,
-        maximum=max(values) if values else None,
-        cpk=cpk,
-    )
-    return group

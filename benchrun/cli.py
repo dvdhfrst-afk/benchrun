@@ -614,6 +614,7 @@ COMMAND_GROUPS: Tuple[str, ...] = (
     "benchrun.audit",
     "benchrun.archive",
     "benchrun.maintenance",
+    "benchrun.stats.command",
 )
 
 
