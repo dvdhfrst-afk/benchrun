@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Run 1: SN-1002</title><style>
+:root { color-scheme: light; --ink: #1d2433; --muted: #5d6779; --line: #d9dee7; --band: #f3f5f9;
+        --pass: #1b7a43; --fail: #b3261e; --abort: #a15c00; --info: #5d6779; --accent: #2a5db0; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 70rem; padding: 1.5rem 1rem 3rem; color: var(--ink); background: #fbfcfe;
+       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+.badge { display: inline-block; padding: .15rem .6rem; border-radius: .3rem; color: #fbfcfe; font-weight: 600;
+         font-size: .85rem; text-transform: uppercase; letter-spacing: .03em; vertical-align: middle; }
+.pass { background: var(--pass); } .fail { background: var(--fail); } .aborted, .error { background: var(--abort); }
+.running, .skipped, .info, .pending { background: var(--info); }
+.reason { border-left: 4px solid var(--abort); padding: .5rem .75rem; background: var(--band); margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: .3rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--band); font-weight: 600; }
+td.num, th.num { text-align: right; }
+tr.bad td { background: #fdf0ef; }
+.scroll { overflow-x: auto; }
+.muted { color: var(--muted); }
+svg { display: block; margin: .75rem 0; max-width: 100%; height: auto; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; }
+</style></head><body><h1>Run 1: SN-1002 <span class="badge fail">fail</span></h1><p class="muted">regulator-quick 1.0: 0 passed, 3 failed, 0 errors, 0 recorded without limits</p><h2>Run</h2><div class="scroll"><table><tbody><tr><th>Serial number</th><td>SN-1002</td></tr><tr><th>Operator</th><td>Operator A</td></tr><tr><th>Note</th><td></td></tr><tr><th>Started (UTC)</th><td>2026-11-10T05:23:05.737+00:00</td></tr><tr><th>Finished (UTC)</th><td>2026-11-10T05:23:05.820+00:00</td></tr><tr><th>Plan variables</th><td>vnom=5</td></tr><tr><th>Plan SHA-256</th><td>7cd83e75e98ca8af5907645dc841119bf0b8fc3ff7e367287308f6c8ed135397</td></tr><tr><th>benchrun version</th><td>1.1.0</td></tr></tbody></table></div><h2>Instruments</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Driver</th><th>Address</th><th>*IDN? response</th></tr></thead><tbody><tr><td>supply</td><td>psu</td><td>127.0.0.1:57769</td><td><code>benchrun,SIM-PSU,SIM0002,1.0</code></td></tr><tr><td>dmm</td><td>dmm</td><td>127.0.0.1:57768</td><td><code>benchrun,SIM-DMM,SIM0001,1.0</code></td></tr></tbody></table></div><h2>output_voltage <span class="badge fail">fail</span></h2><p>3 of 3 failed</p><svg viewBox="0 0 640 200" role="img" aria-label="vout versus vin"><rect x="70" y="24" width="554" height="142" fill="none" stroke="#d9dee7"/><text x="70" y="16" font-size="12" font-weight="600" fill="#1d2433">vout (V)</text><text x="64" y="34" font-size="11" text-anchor="end" fill="#5d6779">5.2823</text><text x="64" y="166" font-size="11" text-anchor="end" fill="#5d6779">4.8717</text><text x="70" y="182" font-size="11" fill="#5d6779">8</text><text x="624" y="182" font-size="11" text-anchor="end" fill="#5d6779">16</text><text x="347" y="194" font-size="11" text-anchor="middle" fill="#5d6779">vin</text><polyline points="70.0,156.2 347.0,156.2 624.0,156.2" fill="none" stroke="#b3261e" stroke-dasharray="5 4"/><polyline points="70.0,87.0 347.0,87.0 624.0,87.0" fill="none" stroke="#b3261e" stroke-dasharray="5 4"/><polyline points="70.0,36.6 347.0,35.1 624.0,33.8" fill="none" stroke="#2a5db0" stroke-width="1.5"/><circle cx="70.0" cy="36.6" r="2.6" fill="#b3261e"/><circle cx="347.0" cy="35.1" r="2.6" fill="#b3261e"/><circle cx="624.0" cy="33.8" r="2.6" fill="#b3261e"/></svg><div class="scroll"><table><thead><tr><th>Measurement</th><th>Point</th><th class="num">Value</th><th>Units</th><th class="num">Low</th><th class="num">High</th><th>Verdict</th><th>Note</th></tr></thead><tbody><tr class="bad"><td>vout</td><td>vin=8</td><td class="num">5.24596</td><td>V</td><td class="num">4.9</td><td class="num">5.1</td><td><span class="badge fail">fail</span></td><td></td></tr><tr class="bad"><td>vout</td><td>vin=12</td><td class="num">5.25002</td><td>V</td><td class="num">4.9</td><td class="num">5.1</td><td><span class="badge fail">fail</span></td><td></td></tr><tr class="bad"><td>vout</td><td>vin=16</td><td class="num">5.25394</td><td>V</td><td class="num">4.9</td><td class="num">5.1</td><td><span class="badge fail">fail</span></td><td></td></tr></tbody></table></div></body></html>

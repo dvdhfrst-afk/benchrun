@@ -1,4 +1,0 @@
-run_id,serial,plan,plan_version,run_status,run_reason,step,step_status,measurement,kind,point,value,units,low,high,verdict,note,instrument,samples,taken_at,run_note
-1,SN-1002,regulator-quick,1.0,fail,,output_voltage,fail,vout,read,"{""vin"": 8.0}",5.245959022,V,4.9,5.1,fail,,dmm,1,2026-11-07T17:20:24.338+00:00,
-1,SN-1002,regulator-quick,1.0,fail,,output_voltage,fail,vout,read,"{""vin"": 12.0}",5.250021706,V,4.9,5.1,fail,,dmm,1,2026-11-07T17:20:24.351+00:00,
-1,SN-1002,regulator-quick,1.0,fail,,output_voltage,fail,vout,read,"{""vin"": 16.0}",5.253943822,V,4.9,5.1,fail,,dmm,1,2026-11-07T17:20:24.364+00:00,

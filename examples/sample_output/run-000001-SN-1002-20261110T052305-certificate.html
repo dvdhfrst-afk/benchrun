@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Test certificate: SN-1002: NOT PASSED</title><style>
+@page { size: auto; margin: 14mm; }
+:root { color-scheme: light; --ink: #1d2433; --muted: #5d6779; --line: #c9d0db; --pass: #1b7a43; --fail: #b3261e; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 52rem; padding: 1.25rem 1rem; color: var(--ink); background: #fbfcfe;
+       font: 12.5px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; position: relative; }
+header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid var(--ink);
+         padding-bottom: .4rem; margin-bottom: .9rem; }
+h1 { font-size: 1.45rem; margin: 0; letter-spacing: .02em; }
+h2 { font-size: .95rem; margin: 1rem 0 .35rem; text-transform: uppercase; letter-spacing: .05em; }
+.verdict { border: 4px solid var(--fail); color: var(--fail); padding: .6rem .9rem; margin: 0 0 .9rem; }
+.verdict.passed { border-color: var(--pass); color: var(--pass); }
+.verdict strong { display: block; font-size: 1.9rem; letter-spacing: .06em; }
+.verdict p { margin: .2rem 0 0; color: var(--ink); font-size: .95rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: .2rem .45rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { border-bottom: 1.5px solid var(--ink); }
+.facts th { width: 11rem; font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: .92em; word-break: break-all; }
+.muted { color: var(--muted); }
+.review { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: 1.2rem; margin-top: 1.6rem; }
+.review div { border-top: 1px solid var(--ink); padding-top: .25rem; }
+.mark { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 5.5rem; font-weight: 800;
+        color: rgba(179, 38, 30, .16); transform: rotate(-24deg); pointer-events: none; letter-spacing: .08em; }
+footer { margin-top: 1.2rem; font-size: .85rem; }
+@media print { body { background: none; padding: 0; max-width: none; } }
+</style></head><body><div class="mark" aria-hidden="true">NOT PASSED</div><header><h1>Test certificate</h1><span class="muted">Run 1</span></header><div class="verdict" role="status"><strong>FAIL</strong><p>The unit did not pass: at least one measurement was outside its limits.</p></div><table class="facts"><tbody><tr><th>Unit serial</th><td>SN-1002</td></tr><tr><th>Test plan</th><td>regulator-quick</td></tr><tr><th>Plan version</th><td>1.0</td></tr><tr><th>Plan SHA-256</th><td><code>7cd83e75e98ca8af5907645dc841119bf0b8fc3ff7e367287308f6c8ed135397</code></td></tr><tr><th>Started (UTC)</th><td>2026-11-10T05:23:05.737+00:00</td></tr><tr><th>Finished (UTC)</th><td>2026-11-10T05:23:05.820+00:00</td></tr><tr><th>Operator</th><td>Operator A</td></tr></tbody></table><h2>Instruments</h2><table><thead><tr><th>Instrument</th><th>Driver</th><th>Identity (*IDN? response)</th><th>Asset tag</th></tr></thead><tbody><tr><td>supply</td><td>psu</td><td><code>benchrun,SIM-PSU,SIM0002,1.0</code></td><td><span class="muted">not recorded</span></td></tr><tr><td>dmm</td><td>dmm</td><td><code>benchrun,SIM-DMM,SIM0001,1.0</code></td><td><span class="muted">not recorded</span></td></tr></tbody></table><h2>Steps</h2><table><thead><tr><th>Step</th><th>Status</th><th class="num">Measured</th><th class="num">Failed</th></tr></thead><tbody><tr><td>(setup)</td><td>pass</td><td class="num">0</td><td class="num">0</td></tr><tr><td>output_voltage</td><td>fail</td><td class="num">3</td><td class="num">3</td></tr><tr><td>(teardown)</td><td>pass</td><td class="num">0</td><td class="num">0</td></tr></tbody></table><h2>Review</h2><div class="review"><div>Reviewer name</div><div>Signature</div><div>Date</div></div><footer class="muted">Written by benchrun 1.1.0 from the results database record of run 1, run UUID <code>2f0021a684914cbf9a0a12caebf7ece6</code>.</footer></body></html>
